@@ -1,0 +1,1624 @@
+#!/usr/bin/perl -w
+
+# Author Nigel Horne: njh@bandsman.co.uk
+# Copyright (C) 2012, Nigel Horne
+
+# Usage is subject to licence terms.
+# The licence terms of this software are as follows:
+# Personal single user, single computer use: GPL2
+# All other users (including Commercial, Charity, Educational, Government)
+#	must apply in writing for a licence for use from Nigel Horne at the
+#	above e-mail.
+
+# Look up names in a Gedcom file on findagrave, billiongraves, gravestonephotos,
+# canadianheadstones and tombfinder
+
+# As the size of these databases increases, one can expect more matches. Do
+# your part to help - sign up to billiongraves.com and start uploading pictures.
+
+# There will be plenty of false matches - expect that. Personally I'd be happy
+# with 75% being false matches if it meant I got new information - Genealogy
+# is all about false leads!
+
+# Often data doesn't include the country of death. When that happens I have
+# three choices:
+# 1) Ignore that record (I think that would miss too many people)
+# 2) Search for that person in all countries (I think that would return too
+#	many wrong matches)
+# 3) Make an educated guess on the country.
+# I've gone for option 3. That's going to give me a lot of work, but I think
+# will be the best in the long run. Don't expect it to be right yet, so for now
+# expect records to be missed when the country isn't given.
+
+# TODO: If no match, try the firstname as an initial
+# TODO: Optimise each driver to minimise impact on the websites
+# TODO: ozburials.com
+# TODO: http://canadianheadstones.com/other_index.htm (Ireland)
+# TODO: teafor2.com/mycemeteries.com
+# TODO: http://www.all-genealogysites.com/Cemeteries/
+# TODO: Handle alternative names
+# FIXME: tombfinder doesn't return exact matches, so you will
+#	get incorrect matches - but that's preferable to missing some
+# FIXME: Handle multiple pages (findagrave has been done)
+# FIXME: only looks at one husband's surname - won't work if
+#	a woman was married more than once
+# FIXME: If death country is UK, only searches in England
+# FIXME: Expect too many matches on records without a country and csp of death
+# FIXME: Tombfinder sometimes gives 500 errors
+# TODO: gravestonephotos.com gives a lot of false positives
+# FIXME: It's slow.
+# TODO: Add more intelligence to the location parser, if the location is
+#	"Margate, Kent", we should infer the country as "England".
+
+use strict;
+use warnings;
+use diagnostics;
+# use warnings::unused;
+use feature 'state';
+
+# use Coro::LWP;
+# use Coro;
+# use Coro::EV;
+use Parallel::Simple qw(prun);
+use Getopt::Std;
+use Encode;
+use Gedcom;
+use WWW::Mechanize::Cached::GZip;
+use HTML::SimpleLinkExtor;
+use XML::LibXML;
+use LWP;
+use HTTP::Cache::Transparent;
+use CHI;
+use Locale::Object::Country;
+use Locale::US;
+use Locale::SubCountry;
+use Memoize;
+use HTTP::Cookies;
+
+my %opts;
+
+getopts('c:s:', \%opts);
+
+my $default_country = $opts{c};
+my $default_subcountry = $opts{s};
+
+die "Usage: gedgrave [ -c default-country-of-death ] [ -s default-subcountry-of-death ] filename\n" unless($ARGV[0]);
+
+my $ged = Gedcom->new(gedcom_file => $ARGV[0], read_only => 1);
+
+# Not when running in Parallel - you get HTML::Form errors
+# becuse HTTP::Cache::Transparent is not thread safe.
+# HTTP::Cache::Transparent::init( {
+	# BasePath => '/tmp/cache/http-cache-transparent',
+	# # Verbose => 1,
+	# NoUpdate => 60 * 60,
+	# MaxAge => 15 * 24} ) || die "gedgrave/cache: $!";
+
+# Gedcoms exported by ancestry.co.uk fail this...
+# die "Invalid gedcom file $ARGV[0]\n" unless($ged->validate());
+
+memoize('check_country');
+
+# Set of caches for each driver
+my $tcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'tombfinder', expires_in => '1 day');
+my $bcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'billiongraves', expires_in => '1 day');
+my $fcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'findagrave', expires_in => '1 day');
+my $gcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'gravestonephotos', expires_in => '1 day');
+my $gcache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'gravestonephotos2', expires_in => '1 day');
+my $gcache3 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'gravestonephotos3', expires_in => '1 day');
+my $hcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'headstones', expires_in => '1 day');
+my $hcache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'headstones2', expires_in => '1 day');
+my $tf2cache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'teafor2', expires_in => '1 day');
+my $tf2cache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'teafor2', expires_in => '1 day');
+my $vcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'virtualcemetery', expires_in => '1 day');
+my $rcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'restingspot', expires_in => '1 day');
+
+# Set of WWW::Mechanize objects for each driver
+my $tmech = WWW::Mechanize::Cached::GZip->new();
+my $bmech = WWW::Mechanize::Cached::GZip->new();
+my $fmech = WWW::Mechanize::Cached::GZip->new();
+my $gmech = WWW::Mechanize::Cached::GZip->new();
+my $hmech = WWW::Mechanize::Cached::GZip->new();
+my $tf2mech = WWW::Mechanize::Cached::GZip->new();
+my $rmech = WWW::Mechanize::Cached::GZip->new();
+
+# This is needed because if you're outside the US, genealogy.com unhelpfully
+# redirects you to ancestry :-(
+my $vjar = HTTP::Cookies->new();
+$vjar->set_cookie(qw(
+	3
+	IPCheck
+	1
+	/
+	.genealogy.com
+	0
+	0
+	0
+	)
+);
+my $vmech = WWW::Mechanize::Cached::GZip->new(cookie_jar => $vjar);
+
+foreach my $person($ged->individuals()) {
+	# Gather the information on this person
+	my $name = $person->name();
+
+	# print "$name\n";
+	if($name =~ /(.+)\s*Jr\.?/i) {
+		$name = $1;
+	}
+	if($name =~ /(.+)Mc\s+(.+)/) {
+		$name = "$1$2";
+	}
+	$name =~ s/[\(\)]//g;
+
+	next unless($name =~ /^(.+)\s+\/(.+)\/$/);
+
+	my ($firstname, $middlename, $lastname);
+	$firstname = lc($1);
+	$lastname = lc($2);
+
+	next unless($firstname && $lastname);
+
+	if($firstname =~ /(.+)?\s+(.+)/) {
+		$firstname = $1;
+		unless($2 eq $lastname) {
+			$middlename = $2;
+		}
+	}
+
+	my $dob;
+	eval {
+		$dob = $person->get_value('birth date');
+	};
+	if($@) {
+		warn "Can't parse record for $firstname $lastname";
+		next;
+	}
+
+	my $dod = $person->get_value('death date') ? $person->get_value('death date') : $person->get_value('burial date');
+
+	if($dod && ($dod =~ /.*?(\d{3,4})/)) {
+		$dod = $1;
+	}
+
+	unless($dob) {
+		$dob = $person->get_value('baptism date');
+	}
+
+	if($dob && ($dob =~ /.*?(\d{3,4})/)) {
+		$dob = $1;
+	} elsif($dob) {
+		print $person->name() . ": invalid date of birth $dob\n";
+		$dob = undef;
+	}
+
+	if((!defined($dod)) && ((!defined($dob)) || ($dob > 1900))) {
+		# Assuming living if we don't have a date of death and
+		# they were born after 1900
+		next;
+	}
+
+	my $dcountry = $person->get_value('death place');
+	my $dcsp;
+
+	# Parse the death location, trying to extract as much information as
+	# possible
+	if($dcountry && ($dcountry =~ /(.*[,-])\s*(.+)/)) {
+		$dcsp = $1;
+		$dcountry = $2;
+		if($dcsp && ($dcsp =~ /.*[,-]\s*(.+)/)) {
+			$dcsp = $1;
+		}
+	}
+
+	if(defined($dcsp)) {
+		$dcsp =~ s/[,;.\)]//g;
+	}
+
+	if(defined($dcountry)) {
+		$dcountry =~ s/\s+$//;
+		if($dcountry =~ /(.+?)\./) {
+			unless($1 eq 'Co') {
+				$dcountry = $1;
+			}
+		}
+		$dcountry =~ s/\)//g;
+		$dcountry =~ s/[;.].*//;
+		my ($new_country, $csp) = check_country({
+			csp => $dcsp,
+			country => $dcountry,
+			default_country => $default_country,
+		});
+		if(defined($new_country)) {
+			$dcountry = $new_country;
+		} else {
+			if(defined($default_country) && ($default_country =~ /United States/i)) {
+				# There may be a state in there somewhere
+				$dcountry = $person->get_value('death place');
+				if($dcountry =~ /,\s*([A-Z]{2})/) {
+					$dcountry = 'United States';
+					$dcsp = us_state($1);
+				}
+			}
+			unless($dcountry) {
+				print $person->name() . ": unknown country $dcountry\n";
+				$dcountry = undef;
+			}
+		}
+		$dcsp = $csp;
+	}
+
+	if($dcsp && $dcountry && ($dcsp eq $dcountry)) {
+		$dcsp = undef;
+	}
+
+	if((!defined($dcountry)) && defined($default_country)) {
+		$default_country = lc($default_country);
+		$dcountry = ucfirst($default_country);
+		if((!defined($dcsp)) && defined($default_subcountry)) {
+			$default_subcountry = lc($default_subcountry);
+			$dcsp = ucfirst($default_subcountry);
+		}
+	}
+
+	# Change surname of a married woman
+	my $sex = $person->get_value('sex');
+	my $maidenname;
+	if(defined($sex) && ($sex eq 'F')) {
+		my $husband = $person->husband();
+		if(defined($husband)) {
+			my $hname = $husband->name();
+			if($hname =~ /(.+)\s*Jr\.?/i) {
+				$hname = $1;
+			}
+			if($hname =~ /(.+)Mc\s+(.+)/) {
+				$hname = "$1$2";
+			}
+			# print $person->name() . " married to $hname\n";
+			if($hname =~ /^.+\s+\/(.+)\/$/) {
+				$maidenname = $lastname;
+				$lastname = lc($1);
+			}
+		}
+	}
+
+	# Remove alternatives - go with the first
+	# TODO: try both alternatives
+	if($lastname =~ /(.+)[\/\\]/) {
+		$lastname = $1;
+	}
+	if($firstname =~ /(.+)[\/\\]/) {
+		$firstname = $1;
+	}
+
+	my %params = (
+		dob => $dob,
+		dod => $dod,
+		dcountry => $dcountry,
+		dcsp => $dcsp,
+		firstname => $firstname,
+		middlename => $middlename,
+		lastname => $lastname,
+		maidenname => $maidenname,
+	);
+
+	my $str = stringify(\%params);
+
+	my $entry;
+	my @plist = ();
+
+	# Submit this person to each driver - one driver per site
+	if((!defined($dcountry)) || ($dcountry eq 'United States')) {
+		$entry = $tcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %tparams = %params;
+			$tparams{cache} = $tcache;
+			$tparams{mech} = $tmech;
+			push @plist, [ \&tombfinder, \%tparams ];
+		}
+	} elsif(defined($dcountry) && ($dcountry eq 'Canada')) {
+		$entry = $hcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %cparams = %params;
+			$cparams{cache} = $hcache;
+			$cparams{cache2} = $hcache2;
+			$cparams{mech} = $hmech;
+			push @plist, [ \&canadianheadstones, \%cparams ];
+		}
+	}
+
+	if(defined($dcountry) && ($dcountry eq 'United States')) {
+		$entry = $hcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %hparams = %params;
+			$hparams{cache} = $hcache;
+			$hparams{cache2} = $hcache2;
+			$hparams{mech} = $hmech;
+			push @plist, [ \&americanheadstones, \%hparams ];
+		}
+	}
+
+	$entry = $fcache->get($str);
+	if((!defined($entry)) || ($entry > 0)) {
+		my %fparams = %params;
+		$fparams{cache} = $fcache;
+		$fparams{mech} = $fmech;
+		push @plist, [ \&findagrave, \%fparams ];
+	}
+
+	$entry = $bcache->get($str);
+	if((!defined($entry)) || ($entry > 0)) {
+		my %bparams = %params;
+		$bparams{cache} = $bcache;
+		$bparams{mech} = $bmech;
+		push @plist, [ \&billiongraves, \%bparams ];
+	}
+
+	$entry = $gcache->get($str);
+	if((!defined($entry)) || ($entry > 0)) {
+		my %gparams = %params;
+		$gparams{cache} = $gcache;
+		$gparams{cache2} = $gcache2;
+		$gparams{cache3} = $gcache3;
+		$gparams{mech} = $gmech;
+		push @plist, [ \&gravestonephotos, \%gparams ];
+	}
+
+	$entry = $tf2cache->get($str);
+	if((!defined($entry)) || ($entry > 0)) {
+		my %tparams = %params;
+		$tparams{cache} = $tf2cache;
+		$tparams{cache2} = $tf2cache2;
+		$tparams{mech} = $tf2mech;
+		push @plist, [ \&teafor2, \%tparams ];
+	}
+
+	$entry = $vcache->get($str);
+	if((!defined($entry)) || ($entry > 0)) {
+		my %vparams = %params;
+		$vparams{cache} = $vcache;
+		$vparams{mech} = $vmech;
+		$vparams{jar} = $vjar;
+		push @plist, [ \&virtualcemetery, \%vparams ];
+	}
+
+	$entry = $rcache->get($str);
+	if((!defined($entry)) || ($entry > 0)) {
+		my %rparams = %params;
+		$rparams{cache} = $rcache;
+		$rparams{mech} = $rmech;
+		push @plist, [ \&restingspot, \%rparams ];
+	}
+
+	prun(@plist) || die(Parallel::Simple::errplus());
+
+	# sleep(2);
+}
+
+sub findagrave {
+	my $params = shift;
+
+	my $dob = $$params{dob};
+	my $dod = $$params{dod};
+	my $dcountry = $$params{dcountry};
+	my $dcsp = $$params{dcsp};
+	my $firstname = $$params{firstname};
+	my $middlename = $$params{middlename};
+	my $lastname = $$params{lastname};
+	my $cache = $$params{cache};
+	my $str = stringify($params);
+	my $m = $$params{mech};
+
+	my $r;
+
+	unless($m->back()) {
+		# HTTP::Response object
+		$r = $m->get('http://www.findagrave.com/cgi-bin/fg.cgi');
+		unless($r->is_success) {
+			warn 'findagrave: ' . $r->status_line . "\n";
+			return;
+		}
+	}
+
+	my %fields = (
+		GSfn => $firstname,
+		GSln => $lastname,
+		GSiman => 0,
+		GSpartial => 0,
+	);
+
+	if($dod) {
+		$fields{GSdy} = $dod;
+		$fields{GSdyrel} = 'in';
+	} elsif($dob) {
+		$fields{GSby} = $dob;
+		$fields{GSbyrel} = 'in';
+	}
+
+	if($middlename) {
+		$fields{GSmn} = $middlename;
+	}
+
+	# Don't enable this.  If we know the date of birth but findagrave
+	# doesn't, findagrave will miss the match. Of course, the downside
+	# of not doing this is that you will get false positives.  It's really
+	# a problem with findagrave.
+	# if($dob) {
+		# $fields{GSby} = $dob;
+		# $fields{GSbyrel} = 'in';
+	# }
+
+	if($dcountry) {
+		if($dcountry eq 'United States') {
+			$fields{GScntry} = 'The United States';
+			if($dcsp) {
+				$fields{GSst} = $dcsp;
+			}
+		} else {
+			$fields{GScntry} = $dcountry;
+		}
+	}
+
+	$r = $m->submit_form(
+		form_number => 1,
+		fields => \%fields,
+	);
+	unless($r->is_success) {
+		warn 'findagrave: ' . stringify($params) . ': ' . $r->status_line . "\n";
+		return;
+	}
+	if($r->content =~ /Sorry, there are no records in the Find A Grave database matching your query\./) {
+		$cache->set($str, 0);
+		return;
+	}
+	my $matches;
+	if($r->content =~ /<B>(\d+)<\/B>\s+total matches/mi) {
+		$matches = $1;
+		$cache->set($str, $matches);
+		return if($matches == 0);
+
+		print "$str: checking $matches possible match";
+		if($matches > 1) {
+			print 'es';
+		}
+		print " on findagrave\n";
+	} else {
+		# This seems to happen quite often, so it's a warning not
+		# a die. I think it's a problem with findagrave.
+		# It would be nice, at this time, to be able to clear the
+		# mech object's history, but I don't think that's possible
+		# my $url = $r->base();
+		# warn "findagrave: $str ($url): parsing error - update the driver";
+		# Perhaps it should retry?
+		return;
+	}
+
+	# Shows 40 per page
+	my $base = $r->base();
+	my $index = 1;
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 10,
+	);
+
+	$ua->env_proxy();
+
+	my $count = 0;
+
+	while(1) {
+		my $e = HTML::SimpleLinkExtor->new($r->base);
+		$e->remove_tags('img', 'script');
+		$e->parse($r->content);
+
+		foreach my $link ($e->links) {
+			my $match = 0;
+			if($dod) {
+				if($link =~ /www.findagrave.com\/cgi-bin\/fg.cgi\?.*&GSln=\Q$lastname\E.*&GSfn=\Q$firstname\E.*&GSdy=\Q$dod\E.*&GRid=\d+/i) {
+					$match = 1;
+				}
+			} else {
+				if($link =~ /www.findagrave.com\/cgi-bin\/fg.cgi\?.*&GSln=\Q$lastname\E.*&GSfn=\Q$firstname\E.*&GSby=\Q$dob\E.*&GRid=\d+/i) {
+					$match = 1;
+				}
+			}
+			if($match && $dcsp) {
+				if($r->content !~ /\Q$dcsp\E/i) {
+					$match = 0;
+				}
+			}
+			if($match) {
+				$count++;
+				print "\t$link\n";
+			}
+		}
+		$index += 40;
+		last if($index > $matches);
+
+		warn "$base&sr=$index";
+		my $r = $ua->get($base . "&sr=$index");
+		last unless($r->is_success);
+	}
+	$cache->set($str, $count);
+}
+
+sub billiongraves {
+	my $params = shift;
+
+	my $dob = $$params{dob};
+	my $dod = $$params{dod};
+	my $dcountry = $$params{dcountry};
+	my $firstname = $$params{firstname};
+	my $middlename = $$params{middlename};
+	my $lastname = $$params{lastname};
+	my $cache = $$params{cache};
+	my $str = stringify($params);
+
+	my $url = 'http://www.billiongraves.com/pages/search/index.php#';
+	if($firstname) {
+		$url .= "given_names=$firstname";
+		# if($middlename) {
+			# $url .= "+$middlename";
+		# }
+		$url .= '&';
+	}
+
+	$url .= "family_name=$lastname";
+
+	if($dod) {
+		$url .= "&death_year=$dod&birth_year=";
+	} elsif($dob) {
+		$url .= "&death_year=&birth_year=$dob";
+	}
+
+	$url .= '&year_range=1&lim=0&num=20&action=search&exact=true';
+
+	if($dcountry) {
+		my $d = $dcountry;
+		$d =~ s/\s/+/g;
+		$url .= "&country=$d";
+		my $dcsp = $$params{dcsp};
+		if(($dcountry eq 'United States') && $dcsp) {
+			$dcsp = ucfirst(lc(us_state($dcsp)));
+			$dcsp =~ s/\s/+/g;
+			$url .= "&state=$dcsp&county=0";
+		} else {
+			$url .= "&state=0&county=0";
+		}
+	} else {
+		$url .= "country=0&state=0&county=0";
+	}
+
+	# print "Billiongraves, checking $url\n";
+
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 10,
+	);
+
+	$ua->env_proxy();
+
+	my $r = $ua->get($url);
+
+	unless($r->is_success) {
+		warn "billiongraves: $str: " . $r->status_line . "\n";
+		return;
+	}
+
+	if($r->content =~ /Search Returned 0 Results\. Sorry\./) {
+		$cache->set($str, 0);
+		return;
+	}
+	if($r->content !~ /Showing.*results for/) {
+		print $r->content;
+		die "billiongraves: $url: parsing error - update the driver";
+	}
+
+	print "$str: found some possible matches on billiongraves\n";
+
+	my $e = HTML::SimpleLinkExtor->new($r->base);
+	$e->remove_tags('img', 'script');
+	$e->parse(Encode::decode_utf8($r->content));
+
+	my $count = 0;
+	foreach my $link ($e->links) {
+		print "$link\n";
+		if($link =~ /www.billiongraves.com\/pages\/record\/.+\Q$lastname\E/i) {
+			print "\t$link\n";
+			$count++;
+		}
+	}
+	$cache->set($str, $count);
+}
+
+sub canadianheadstones {
+	my $params = shift;
+
+	my $dcsp = $$params{dcsp};
+
+	return unless(defined($dcsp));
+
+	my $m = $$params{mech};
+	my $lastname = $$params{lastname};
+	my $cache = $$params{cache};
+	my $cache2 = $$params{cache2};
+	my $str = stringify($params);
+
+	my $content = $cache2->get($lastname);
+
+	unless($content) {
+		my $r;
+
+		# HTTP::Response object
+		my $url = 'http://www.canadianheadstones.com/' . lc($dcsp);
+		$r = $m->get($url);
+		unless($r->is_success) {
+			# Happens when looking for a province that isn't
+			# correct, often from the default_subscountry setting
+			warn "$url: $str: " . $r->status_line . "\n";
+			return;
+		}
+
+		my %fields = (
+			ctxt => $lastname,
+		);
+
+		$r = $m->submit_form(
+			form_number => 1,
+			fields => \%fields,
+		);
+		unless($r->is_success) {
+			warn $r->status_line . "\n";
+			return;
+		}
+
+		$content = $r->content;
+		$cache2->set($lastname, $content);
+		if($content =~ /Sorry no entries matching your search were found\./mi) {
+			$cache->set($str, 0);
+			return;
+		}
+	}
+
+	print "$str: found some possible matches on canadianheadstones\n";
+
+	my $e = HTML::SimpleLinkExtor->new();
+	$e->remove_tags('img', 'script');
+	$e->parse(Encode::decode_utf8($content));
+
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 10,
+	);
+
+	$ua->env_proxy();
+
+	my $uname = uc($lastname);
+	my $count = 0;
+	foreach my $link ($e->links) {
+		if($link =~ /\Q$dcsp\E\/view.php/i) {
+			unless($link =~ /canadianheadstones\.com/) {
+				$link = "http://www.canadianheadstones.com$link";
+			}
+			# print "canadianheadstones: $link";
+			# Canadianheadstones doesn't return exact matches, let's look
+			# at the record itself - the title contains something
+			# we can then match against
+			my $r = $ua->get($link);
+			if($r->is_success) {
+				my $t = $r->title();
+				# print "\tChecking $t\n";
+				if(defined($t) && ($t =~ /\Q$uname\E[\s,]/i)) {
+					print "\t$link\n";
+					$count++;
+				}
+			}
+		}
+	}
+	$cache->set($str, $count);
+}
+
+sub americanheadstones {
+	my $params = shift;
+
+	my $dcsp = $$params{dcsp};
+
+	return unless(defined($dcsp));
+
+	my $m = $$params{mech};
+	my $firstname = $$params{firstname};
+	my $lastname = $$params{lastname};
+	my $cache = $$params{cache};
+	my $str = stringify($params);
+
+	$dcsp = lc(us_state($dcsp));
+	$dcsp =~ s/ //g;
+
+	# HTTP::Response object
+	my $url = "http://www.${dcsp}gravestones.org/search.php";
+	# print "Checking $url\n";
+
+	my $r = $m->get($url);
+	unless($r->is_success) {
+		# warn "$url: " . $r->status_line . "\n";
+		$cache->set($str, 0);
+		return;	# No site, not all states are done
+	}
+
+	my %fields = (
+		last => $lastname,
+	);
+
+	if($firstname) {
+		$fields{first} = $firstname;
+	}
+
+	$r = $m->submit_form(
+		form_number => 1,
+		fields => \%fields,
+	);
+	unless($r->is_success) {
+		warn "$url: " . $r->status_line . "\n";
+		return;
+	}
+
+	if($r->content =~ /Sorry no entries matching your search were found\./mi) {
+		$cache->set($str, 0);
+		return;
+	}
+
+	print "$str: found some possible matches on ${dcsp}gravestones.org\n";
+
+	my $e = HTML::SimpleLinkExtor->new($r->base);
+	$e->remove_tags('img', 'script');
+	$e->parse(Encode::decode_utf8($r->content));
+
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 10,
+	);
+
+	$ua->env_proxy();
+
+	my $uname = uc($lastname);
+	my $count = 0;
+	my $cache2 = $$params{cache2};
+	foreach my $link ($e->links) {
+		if($link =~ /\/view.php\?id=(\d+)/) {
+			my $id = $1;
+			# Canadianheadstones doesn't return exact matches,
+			# let's look at the record itself - the title contains
+			# something we can then match against
+			unless($link =~ /gravestones\.org/) {
+				$link = "http://www.${dcsp}gravestones.org$link";
+			}
+			# Because you search on so little on this site you
+			# often find the same record, so cache it
+			my $t = $cache2->get($id);
+			unless($t) {
+				$r = $ua->get($link);
+				if($r->is_success) {
+					$t = $r->title();
+					if($t) {
+						$cache2->set($id, $t);
+					}
+				}
+			}
+			if($t) {
+				# print "$link: Checking $t\n";
+				if(defined($t) && ($t =~ /\Q$uname\E[\s,]/i)) {
+					print "\t$link\n";
+					$count++;
+				}
+			}
+		}
+	}
+	$cache->set($str, $count);
+}
+
+# US only
+sub tombfinder {
+	my $params = shift;
+
+	my $dob = $$params{dob};
+	my $dod = $$params{dod};
+	my $firstname = $$params{firstname};
+	my $lastname = $$params{lastname};
+	my $cache = $$params{cache};
+	my $str = stringify($params);
+	my $m = $$params{mech};
+	my $dcountry = $$params{dcountry};
+	my $dcsp = $$params{dcsp};
+
+	my $r;
+	unless($m->back()) {
+		# HTTP::Response object
+		$r = $m->get('http://www.tombfinder.com/records');
+		unless($r->is_success) {
+			warn 'tombfinder: ' . $r->status_line . "\n";
+			return;
+		}
+	}
+
+	my %fields = (
+		'search[first_name_contains]' => $firstname,
+		'search[surname_contains]' => $lastname,
+	);
+
+	if($dod) {
+		$fields{'search[death_year_less_than_or_equal_to]'} = $dod;
+	} elsif($dob) {
+		$fields{'search[birth_year_greater_than_or_equal_to]'} = $dob;
+	}
+
+	if($dcsp && ($dcountry eq 'United States')) {
+		$fields{'search_account_state_contains'} = $dcsp;
+	}
+
+	$r = $m->submit_form(
+		form_number => 1,
+		fields => \%fields,
+	);
+	unless($r->is_success) {
+		warn 'tombfinder: ' . stringify($params) . ': ' . $r->status_line . "\n";
+		return;
+	}
+
+	if($r->content =~ /Your search returned (\d+) records/mi) {
+		$cache->set($str, $1);
+		return if($1 == 0);
+
+		print "$str: checking $1 possible match";
+		if($1 > 1) {
+			print 'es';
+		}
+		print " on tombfinder\n";
+	} else {
+		$cache->set($str, 0);
+		return;
+	}
+
+	my $e = HTML::SimpleLinkExtor->new($r->base);
+	$e->remove_tags('img', 'script');
+	$e->parse($r->content);
+
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 10,
+	);
+
+	$ua->env_proxy();
+
+	my $count = 0;
+	foreach my $link ($e->links) {
+		if($link =~ /\.tombfinder\.com\/records\/\d+/) {
+			# Tombfinder doesn't return exact matches, let's look
+			# at the record itself - the title contains something
+			# we can then match against
+			$r = $ua->get($link);
+			if($r->is_success) {
+				my $t = $r->title();
+				# print "tombfinder: checking $t\n";
+				if(defined($t) && ($t =~ /[\s,]\Q$lastname\E[\s,]/i)) {
+					if($dod && ($t !~ /\Q$dod\E/)) {
+						next;
+					} elsif($dob && ($t !~ /\Q$dob\E/)) {
+						next;
+					}
+					print "\t$link\n";
+					$count++;
+				}
+			}
+		}
+	}
+	$cache->set($str, $count);
+}
+
+sub gravestonephotos {
+	my $params = shift;
+
+	my $dcountry = $$params{dcountry};
+
+	return unless defined($dcountry);
+
+	my $dod = $$params{dod};
+	my $dcsp = $$params{dcsp};
+	my $firstname = $$params{firstname};
+	my $lastname = $$params{lastname};
+	my $cache = $$params{cache};
+	my $cache2 = $$params{cache2};
+	my $str = stringify($params);
+
+	my $content = $cache2->get($lastname);
+
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 30,
+	);
+
+	$ua->env_proxy();
+
+	unless($content) {
+		# print "gravestonephotos $dcountry $lastname\n";
+		my $l = $lastname;
+		$l =~ s/ /+/g;
+		my $url = "http://www.gravestonephotos.com/public/findfamily.php?name=$l";
+		# print "getting $url\n";
+		my $r = $ua->get($url);
+		# HTTP::Response object
+		unless($r->is_success) {
+			warn "$url: " . $r->status_line . "\n";
+			return;
+		}
+
+		$content = $r->content;
+
+		$cache2->set($lastname, $content);
+
+		if(($content =~ /Sorry but there are no entries for the name \Q$lastname\E/i) ||
+		   ($content =~ /Sorry but there are no entries for the name \Q$l\E/i)) {
+			$cache->set($str, 0);
+			return;
+		}
+
+		if($l =~ /'/) {
+			# Bug in gravestones.com, which has been reported
+			$l =~ s/'/\\'/g;
+		}
+
+		if(($content !~ /all entries within the Gravestone Photographic Resource for the name \Q$lastname\E/i) &&
+		   ($content !~ /all entries within the Gravestone Photographic Resource for the name \Q$l\E/i)) {
+			print $content;
+			die "gravestonephotos: $str (lastname $lastname/$l): parsing error - update the driver\n";
+		}
+		unless($content =~ /\Q$dcountry\E/i) {
+			$cache->set($str, 0);
+			return;
+		}
+		if($dod) {
+			unless($content =~ /\Q$dod\E/) {
+				$cache->set($str, 0);
+				return;
+			}
+		}
+		if($firstname) {
+			unless($content =~ /\Q$firstname\E/) {
+				$cache->set($str, 0);
+				return;
+			}
+		}
+	}
+
+	my $e = HTML::SimpleLinkExtor->new();
+	$e->remove_tags('img', 'script');
+	$e->parse(Encode::decode_utf8($content));
+
+	my $dob = $$params{dob};
+
+	my $cache3 = $$params{cache3};
+	my $count = 0;
+	foreach my $link ($e->links) {
+
+	# # http://stackoverflow.com/questions/254345/how-can-i-extract-url-and-link-text-from-html-in-perl
+	# # Don't do until RT77998 is fixed
+	# my $doc;
+	# eval {
+		# $doc = XML::LibXML->load_html(string => $content, recover => 2);
+	# };
+	# if($@) {
+		# warn "gravestonephotos: error parsing $str";
+		# $cache->set($str, 0);
+		# return;
+	# }
+	# my %links;
+	# foreach my $anchor ($doc->findnodes('//a[@href]')) {
+		# # printf "%15s -> %s\n",
+			# # $anchor->textContent,
+			# # $anchor->getAttribute('href');
+
+		# $links{$anchor->textContent} = $anchor->getAttribute('href');
+	# }
+
+	# foreach my $link (keys(%links)) {
+		# next unless($link =~ /\Q$lastname\E/i);
+
+		# if($firstname) {
+			# next unless($link =~ /\Q$firstname\E/i);
+		# }
+		# $link = $links{$link};
+		if($link =~ /gravedetails.php\?.*fullname=\Q$firstname\E\s\Q$lastname\E/i) {
+			$link =~ s/ /%20/g;
+			$link = "http://www.gravestonephotos.com/public/$link";
+			# Gravestonephotos doesn't return exact matches, let's
+			# look at the record itself - the title contains
+			# something we can then match against
+
+			my $t = $cache3->get("$link/title");
+			unless($t) {
+				my $r = $ua->get($link);
+				if($r->is_success()) {
+					$t = $r->title();
+					$cache3->set("$link/title", $t);
+					if($t) {
+						$cache3->set("$link/content", $r->content());
+					}
+				}
+			}
+			next unless defined($t);
+
+			my $match = 0;
+			# print "gravestonephotos $str: comparing $t\n";
+			if(defined($firstname)) {
+				if(defined($dcsp)) {
+					if($t =~ /\Q$dcsp\E.*\Q$dcountry\E.*\E$firstname\E.*\Q$lastname\E/i) {
+						$match = 1;
+					}
+				} else {
+					if($t =~ /\Q$dcountry\E.*\E$firstname\E.*\Q$lastname\E/i) {
+						$match = 1;
+					}
+				}
+			} else {
+				if(defined($dcsp)) {
+					if($t =~ /\Q$dcsp\E.*\Q$dcountry\E.*\Q$lastname\E/i) {
+						$match = 1;
+					}
+				} else {
+					if($t =~ /\Q$dcountry\E.*\Q$lastname\E/i) {
+						$match = 1;
+					}
+				}
+			}
+			if($match) {
+				my $content;
+
+				if($dod || $dob) {
+					$content = $cache3->get("$link/content");
+				}
+				if($dod) {
+					if($content !~ /\Q$dod\E/) {
+						$match = 0;
+					}
+				} elsif($dob) {
+					if($content !~ /\Q$dob\E/) {
+						$match = 0;
+					}
+				}
+				if($match) {
+					print "$str: found $t on gravestonephotos.com\n";
+					print "\t$link\n";
+					$count++;
+				}
+			}
+			# print 'x' x 40 . "\n";
+		}
+	}
+	$cache->set($str, $count);
+}
+
+sub teafor2 {
+	my $params = shift;
+
+	my $dcountry = $$params{dcountry};
+	return unless defined($dcountry);
+
+	my $cache = $$params{cache};
+	my $cache2 = $$params{cache2};
+	my $content = $cache2->get('http://teafor2.com/AW/index.php');
+	my $lastname = $$params{lastname};
+	my $str = stringify($params);
+
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 30,
+	);
+
+	$ua->env_proxy();
+
+	unless($content) {
+		my $r = $ua->get('http://teafor2.com/AW/index.php');
+		# HTTP::Response object
+		unless($r->is_success) {
+			warn "teafor2: " . $r->status_line . "\n";
+			$cache->set($str, 0);
+			return;
+		}
+
+		$content = $r->content;
+
+		$cache2->set('index', $content);
+	}
+
+	my $dcsp = $$params{dcsp};
+	if($dcountry eq 'United States') {
+		unless(defined($dcsp)) {
+			$cache->set($str, 0);
+			return;
+		}
+
+		$dcountry = 'USA';
+
+	} elsif($dcountry eq 'England') {
+		$dcountry = 'ENG';
+	}
+
+	my $count = 0;
+	if(defined($dcsp)) {
+		while($content =~ /<h4>.+?\Q$dcsp\E.+?\Q$dcountry\E.+?<\/h4>.+<a href="(.+?)">/g) {
+			warn "TODO: teafor2 $lastname: $dcsp $dcountry $1\n";
+			$count++;
+		}
+	} else {
+		while($content =~ /<h4>.+?\Q$dcountry\E.+?<\/h4>.+<a href="(.+?)">/g) {
+			warn "TODO: teafor2 $lastname: $dcountry $1\n";
+			$count++;
+		}
+	}
+	$cache->set($str, $count);
+}
+
+sub virtualcemetery {
+	my $params = shift;
+
+	my $dob = $$params{dob};
+	my $dod = $$params{dod};
+	my $dcountry = $$params{dcountry};
+	my $dcsp = $$params{dcsp};
+	my $firstname = $$params{firstname};
+	my $middlename = $$params{middlename};
+	my $lastname = $$params{lastname};
+	my $cache = $$params{cache};
+	my $str = stringify($params);
+	my $m = $$params{mech};
+
+	my $r;
+	unless($m->back()) {
+		# HTTP::Response object
+		$r = $m->get('http://www.genealogy.com/VG/vcem_search.html');
+		unless($r->is_success) {
+			warn 'virtualcemetery: ' . $r->status_line . "\n";
+			return;
+		}
+		if($r->content =~ /To better assist your research we will redirect you/) {
+			# print $r->content;
+			die "Failed to set the cookie corectly on genealogy.com";
+		}
+	}
+
+	my %fields = (
+		FIRSTNAME => $firstname,
+		LASTNAME => $lastname,
+	);
+
+	if($dod) {
+		$fields{ddyear} = $dod;
+	} elsif($dob) {
+		$fields{bdyear} = $dob;
+	}
+
+	if($middlename) {
+		$fields{MIDDLENAME} = $middlename;
+	}
+
+	# Don't enable this.  If we know the date of birth but findagrave
+	# doesn't, findagrave will miss the match. Of course, the downside
+	# of not foing this is that you will get false positives.  It's really
+	# a problem with findagrave.
+	# if($dob) {
+		# $fields{GSby} = $dob;
+		# $fields{GSbyrel} = 'in';
+	# }
+
+	if($dcountry) {
+		if($dcountry eq 'United States') {
+			$fields{DPCOUNTRY} = 'USA';
+			if($dcsp) {
+				$fields{DPSTATE} = us_2letter($dcsp);
+				# print "virtual cemetery: state = $fields{DPSTATE}\n";
+			}
+		} else {
+			$fields{DPCOUNTRY} = $dcountry;
+			if($dcsp) {
+				$fields{DPSTATE} = $dcsp;
+			}
+		}
+	}
+
+	$r = $m->submit_form(
+		form_number => 2,
+		fields => \%fields,
+	);
+	unless($r->is_success) {
+		warn 'virtualcemetery: ' . stringify($params) . ': ' . $r->status_line . "\n";
+		return;
+	}
+	if($r->content =~ /No matches/) {
+		$cache->set($str, 0);
+		return;
+	}
+
+	print "$str: found some possible matches on virtual cemetery\n";
+
+	my $e = HTML::SimpleLinkExtor->new();
+	$e->remove_tags('img', 'script');
+	$e->parse($r->content);
+
+	if(scalar($e->links) == 0) {
+		# No links seems unlikely, there must be something wrong
+		die "virtualcemetery: $str: parsing error - update the driver\n";
+	}
+
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 10,
+		cookie_jar => $$params{jar},
+	);
+
+	$ua->env_proxy();
+
+	my $count = 0;
+	foreach my $link ($e->links) {
+		if($link =~ /VG\/.+\/index.html/) {
+			unless($link =~ /genealogy\.com/) {
+				$link = "http://www.genealogy.com$link";
+			}
+			# print "genealogy: $link\n";
+			my $r = $ua->get($link);
+			my $match = 0;
+			if($r->is_success) {
+				$match = 1;
+				my $content = $r->content();
+
+				if(defined($dcountry) && ($content !~ /\Q$dcountry\E/i)) {
+					$match = 0;
+				} elsif(defined($dcsp) && ($content !~ /\Q$dcsp\E/i)) {
+					$match = 0;
+				}
+				if($match) {
+					if($dod) {
+						if($r->content() !~ /\Q$dod\E/) {
+							$match = 0;
+						}
+					} elsif($dob) {
+						if($r->content() !~ /\Q$dob\E/) {
+							$match = 0;
+						}
+					}
+				}
+			}
+			if($match) {
+				print "\t$link\n";
+				$count++;
+			}
+		}
+	}
+	$cache->set($str, $count);
+}
+
+sub restingspot {
+	my $params = shift;
+
+	my $dob = $$params{dob};
+	my $dod = $$params{dod};
+	my $dcountry = $$params{dcountry};
+	my $dcsp = $$params{dcsp};
+	my $firstname = $$params{firstname};
+	my $middlename = $$params{middlename};
+	my $lastname = $$params{lastname};
+	my $cache = $$params{cache};
+	my $str = stringify($params);
+	my $m = $$params{mech};
+
+	my $r;
+	unless($m->back()) {
+		# HTTP::Response object
+		$r = $m->get('http://www.restingspot.com');
+		unless($r->is_success) {
+			warn 'restingspot: ' . $r->status_line . "\n";
+			return;
+		}
+	}
+
+	my %fields = (
+		searchval => ($firstname) ? "$firstname $lastname" : $lastname
+	);
+
+	$r = $m->submit_form(
+		form_number => 1,
+		fields => \%fields,
+	);
+	unless($r->is_success) {
+		warn 'restingspot: ' . stringify($params) . ': ' . $r->status_line . "\n";
+		return;
+	}
+	if($r->content =~ /No Resting Spot Added/) {
+		$cache->set($str, 0);
+		return;
+	}
+
+	if($r->content =~ /RestingSpots (\d+)/) {
+		print "$str: found $1 possible matches on resting spot\n";
+	}
+
+	my $e = HTML::SimpleLinkExtor->new();
+	$e->remove_tags('img', 'script');
+	$e->parse(Encode::decode_utf8($r->content));
+
+	if(scalar($e->links) == 0) {
+		# No links seems unlikely, there must be something wrong
+		die "restingspots: $str: parsing error - update the driver\n";
+	}
+
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 10,
+		cookie_jar => $$params{jar},
+	);
+
+	$ua->env_proxy();
+
+	my $count = 0;
+	foreach my $link ($e->links) {
+		if($link =~ /\/search\/cemetery\//) {
+			last;
+		}
+		unless($link =~ /\/\Q$lastname\E\//i) {
+			next;
+		}
+		unless($link =~ /restingspot\.com/) {
+			$link = "http://www.restingspot.com$link";
+		}
+		# print "restingspot: $link\n";
+		my $r = $ua->get($link);
+		my $match = 0;
+		if($r->is_success) {
+			$match = 1;
+			my $content = $r->content();
+
+			if(defined($dcountry) && ($content !~ /\Q$dcountry\E/i)) {
+				$match = 0;
+			} elsif(defined($dcsp) && ($content !~ /\Q$dcsp\E/i)) {
+				$match = 0;
+			}
+			if($match) {
+				if($dod) {
+					if($r->content() !~ /\Q$dod\E/) {
+						$match = 0;
+					}
+				} elsif($dob) {
+					if($r->content() !~ /\Q$dob\E/) {
+						$match = 0;
+					}
+				}
+			}
+		}
+		if($match) {
+			print "\t$link\n";
+			$count++;
+		}
+	}
+	$cache->set($str, $count);
+}
+
+# Pretty print a person
+sub stringify {
+	my $params = shift;
+
+	my $dob = $$params{dob};
+	my $dod = $$params{dod};
+	my $dcsp = $$params{dcsp};
+	my $dcountry = $$params{dcountry};
+	my $firstname = $$params{firstname};
+	my $lastname = $$params{lastname};
+	my $middlename = $$params{middlename};
+	my $maidenname = $$params{maidenname};
+
+	my $rc = ucfirst($lastname);
+
+	if($firstname) {
+		my $f = ucfirst($firstname);
+		$rc .= ", $f";
+		if($middlename) {
+			$f = ucfirst($middlename);
+			$rc .= " $f";
+		}
+	}
+
+	if($maidenname && ($maidenname ne $lastname)) {
+		my $m = ucfirst($maidenname);
+		$rc .= " (nee $m)";
+	}
+
+	if($dcountry) {
+		if($dcsp) {
+			unless(length($dcsp) == 2) {
+				$dcsp = ucfirst(lc($dcsp));
+			}
+			$rc .= " ($dcsp, $dcountry)";
+		} else {
+			$rc .= " ($dcountry)";
+		}
+	}
+
+	$rc .= ' ';
+
+	if($dob) {
+		$rc .= $dob;
+	}
+
+	$rc .= '-';
+
+	if($dod) {
+		$rc .= "$dod";
+	}
+
+	return $rc;
+}
+
+# Parse the location field and try to extract country and state of death to
+# optimise the burial site look-up
+sub check_country {
+	my $args = shift;
+
+	my $country = $$args{country};
+
+	if($country eq 'UK') {
+		return 'England', undef;
+	}
+
+	if(($country =~ /England/) ||
+	   ($country eq 'Wales') ||
+	   ($country eq 'Scotland')) {
+		return $country, undef;
+	}
+
+	if(($country eq 'Kent') ||
+	   ($country =~ /Sussex$/) ||
+	   ($country eq 'Essex') ||
+	   ($country eq 'Surrey') ||
+	   ($country eq 'London') ||
+	   ($country eq 'Berkshire') ||
+	   ($country =~ /Yorkshire/) ||
+	   ($country eq 'Norfolk') ||
+	   ($country eq 'Lancashire') ||
+	   ($country eq 'Suffolk') ||
+	   ($country eq 'Middlesex') ||
+	   ($country eq 'Gloucestershire') ||
+	   ($country eq 'Hertfordshire') ||
+	   ($country eq 'Derbyshire') ||
+	   ($country =~ /Durham$/) ||
+	   ($country eq 'Dorset') ||
+	   ($country eq 'Shropshire') ||
+	   ($country eq 'Devon') ||
+	   ($country eq 'Cornwall') ||
+	   ($country eq 'Lincolnshire') ||
+	   ($country eq 'Warwickshire') ||
+	   ($country eq 'Buckinghamshire') ||
+	   ($country eq 'Wiltshire') ||
+	   ($country eq 'Somerset') ||
+	   ($country eq 'Northumberland') ||
+	   ($country eq 'Leicestershire') ||
+	   ($country eq 'Cambridgeshire') ||
+	   ($country eq 'Northamptonshire') ||
+	   ($country =~ /Isle of Wight/i) ||
+	   ($country eq 'Nottinghamshire') ||
+	   ($country eq 'Merseyside') ||
+	   ($country eq 'Cheshire') ||
+	   ($country eq 'Staffordshire') ||
+	   ($country eq 'Oxfordshire') ||
+	   ($country eq 'Hampshire')) {
+		return 'England', $country;
+	}
+
+	if(($country =~ /Glamorgan/) ||
+	   ($country eq 'Clywd')) {
+		return 'Wales', $country;
+	}
+
+	if($country eq 'NZ') {
+		return 'New Zealand', undef;
+	}
+
+	my $csp = $$args{csp};
+	$csp ||= $country;
+
+	if(($csp eq 'Tasmania') ||
+	   ($csp eq 'South Australia') ||
+	   ($csp eq 'Western Australia') ||
+	   ($csp =~ /NSW/)) {
+		return 'Australia', $csp;
+	}
+
+	if($country =~ /France/) {
+		return 'France', undef;
+	}
+
+	my $s = us_state($csp);
+	if($s) {
+		return 'United States', $s;
+	}
+	if(defined($$args{default_country}) && ($$args{default_country} =~ /United States/i)) {
+		# Probably no country given and the state has therefore ended
+		# in the country field
+		$s = us_state($country);
+		if($s) {
+			return 'United States', $s;
+		}
+		# Handle "Foo Florida; as well as Foo, Florida"
+		my $c = $country;
+		if($c =~ /\s(.+)?/) {
+			$s = us_state($1);
+			if($s) {
+				return 'United States', $s;
+			}
+		}
+	}
+	if(($country =~ /USA$/) ||
+	   ($country eq 'America')) {
+		return 'United States', undef;
+	}
+
+	my $canada = Locale::SubCountry->new('CA');
+
+	if($canada->code($csp) ne 'unknown') {
+		return 'Canada', $canada->code($csp);
+	}
+	if($canada->full_name(uc($csp)) ne 'unknown') {
+		return 'Canada', uc($csp);
+	}
+
+	local $SIG{__WARN__} = sub { die $_[0] };
+
+	eval {
+		my $country = Locale::Object::Country->new(name => $country);
+	};
+	if($@) {
+		return;
+	}
+	return $country, $csp;
+}
+
+# Returns the full name of the given US state
+sub us_state {
+	my $csp = shift;
+
+	my $us = Locale::US->new();
+	if(exists($us->{code2state}{uc($csp)})) {
+		# Two letter postal abbreviation
+		return $us->{code2state}{uc($csp)};
+	}
+	if(exists($us->{state2code}{uc($csp)})) {
+		return $csp;
+	}
+}
+
+# Returns the 2 letter postal code of the given US state
+sub us_2letter {
+	my $csp = shift;
+
+	my $us = Locale::US->new();
+	if(exists($us->{code2state}{uc($csp)})) {
+		return $csp;
+	}
+	if(exists($us->{state2code}{uc($csp)})) {
+		# Two letter postal abbreviation
+		return $us->{state2code}{uc($csp)};
+	}
+}
