@@ -504,7 +504,7 @@ sub findagrave {
 		timeout => 10,
 	);
 
-	$ua->env_proxy();
+	$ua->env_proxy(1);
 
 	my $count = 0;
 
@@ -600,7 +600,7 @@ sub billiongraves {
 		timeout => 10,
 	);
 
-	$ua->env_proxy();
+	$ua->env_proxy(1);
 
 	my $r = $ua->get($url);
 
@@ -700,7 +700,7 @@ sub canadianheadstones {
 		timeout => 10,
 	);
 
-	$ua->env_proxy();
+	$ua->env_proxy(1);
 
 	my $uname = uc($lastname);
 	my $count = 0;
@@ -789,7 +789,7 @@ sub americanheadstones {
 		timeout => 10,
 	);
 
-	$ua->env_proxy();
+	$ua->env_proxy(1);
 
 	my $uname = uc($lastname);
 	my $count = 0;
@@ -900,7 +900,7 @@ sub tombfinder {
 		timeout => 10,
 	);
 
-	$ua->env_proxy();
+	$ua->env_proxy(1);
 
 	my $count = 0;
 	foreach my $link ($e->links) {
@@ -951,7 +951,7 @@ sub gravestonephotos {
 		timeout => 30,
 	);
 
-	$ua->env_proxy();
+	$ua->env_proxy(1);
 
 	unless($content) {
 		# print "gravestonephotos $dcountry $lastname\n";
@@ -1130,7 +1130,7 @@ sub teafor2 {
 		timeout => 30,
 	);
 
-	$ua->env_proxy();
+	$ua->env_proxy(1);
 
 	unless($content) {
 		my $r = $ua->get('http://teafor2.com/AW/index.php');
@@ -1273,7 +1273,7 @@ sub virtualcemetery {
 		cookie_jar => $$params{jar},
 	);
 
-	$ua->env_proxy();
+	$ua->env_proxy(1);
 
 	my $count = 0;
 	foreach my $link ($e->links) {
@@ -1376,7 +1376,7 @@ sub restingspot {
 		cookie_jar => $$params{jar},
 	);
 
-	$ua->env_proxy();
+	$ua->env_proxy(1);
 
 	my $count = 0;
 	foreach my $link ($e->links) {
