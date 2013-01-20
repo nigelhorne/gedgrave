@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 
 # Author Nigel Horne: njh@bandsman.co.uk
-# Copyright (C) 2012, Nigel Horne
+# Copyright (C) 2012,2013, Nigel Horne
 
 # Usage is subject to licence terms.
 # The licence terms of this software are as follows:
@@ -71,7 +71,7 @@ use HTTP::Cache::Transparent;
 use CHI;
 use Locale::Object::Country;
 use Locale::US;
-# use Locale::CA;
+use Locale::CA;
 use Locale::SubCountry;
 use Memoize;
 use HTTP::Cookies;
@@ -1628,20 +1628,15 @@ sub us_2letter {
 }
 
 # Returns the 2 letter postal code of the given Canadian province
-# sub ca_2letter {
-	# my $csp = shift;
-# 
-	# my $ca = Locale::CA->new();
-	# if(exists($ca->{code2province}{uc($csp)})) {
-		# return $csp;
-	# }
-	# if(exists($ca->{province2code}{uc($csp)})) {
-		# # Two letter postal abbreviation
-		# return $ca->{province2code}{uc($csp)};
-	# }
-# }
-
-# TODO
 sub ca_2letter {
-	return shift;
+	my $csp = shift;
+
+	my $ca = Locale::CA->new();
+	if(exists($ca->{code2province}{uc($csp)})) {
+		return $csp;
+	}
+	if(exists($ca->{province2code}{uc($csp)})) {
+		# Two letter postal abbreviation
+		return $ca->{province2code}{uc($csp)};
+	}
 }
