@@ -1065,11 +1065,11 @@ sub gravestonephotos {
 			# print "gravestonephotos $str: comparing $t\n";
 			if(defined($firstname)) {
 				if(defined($dcsp)) {
-					if($t =~ /\Q$dcsp\E.*\Q$dcountry\E.*\E$firstname\E.*\Q$lastname\E/i) {
+					if($t =~ /\Q$dcsp\E.*\Q$dcountry\E.*\Q$firstname\E.*\Q$lastname\E/i) {
 						$match = 1;
 					}
 				} else {
-					if($t =~ /\Q$dcountry\E.*\E$firstname\E.*\Q$lastname\E/i) {
+					if($t =~ /\Q$dcountry\E.*\Q$firstname\E.*\Q$lastname\E/i) {
 						$match = 1;
 					}
 				}
