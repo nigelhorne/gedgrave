@@ -391,7 +391,7 @@ foreach my $person($ged->individuals()) {
 		push @plist, [ \&restingspot, \%rparams ];
 	}
 
-	prun(@plist) || die(Parallel::Simple::errplus());
+	prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
 
 	# sleep(2);
 }
