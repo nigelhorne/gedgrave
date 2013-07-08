@@ -605,7 +605,8 @@ sub billiongraves {
 	my $r = $ua->get($url);
 
 	unless($r->is_success) {
-		warn "billiongraves: $str: " . $r->status_line . "\n";
+		warn "billiongraves: $str ($url): " . $r->status_line . "\n";
+		$cache->set($str, 0);
 		return;
 	}
 
