@@ -315,7 +315,7 @@ foreach my $person($ged->individuals()) {
 			my %tparams = %params;
 			$tparams{cache} = $tcache;
 			$tparams{mech} = $tmech;
-			push @plist, [ \&tombfinder, \%tparams ];
+			push @plist, tombfinder => [ \&tombfinder, \%tparams ];
 		}
 	} elsif(defined($dcountry) && ($dcountry eq 'Canada')) {
 		$entry = $hcache->get($str);
@@ -324,7 +324,7 @@ foreach my $person($ged->individuals()) {
 			$cparams{cache} = $hcache;
 			$cparams{cache2} = $hcache2;
 			$cparams{mech} = $hmech;
-			push @plist, [ \&canadianheadstones, \%cparams ];
+			push @plist, canadianheadstones => [ \&canadianheadstones, \%cparams ];
 		}
 	}
 
@@ -335,7 +335,7 @@ foreach my $person($ged->individuals()) {
 			$hparams{cache} = $hcache;
 			$hparams{cache2} = $hcache2;
 			$hparams{mech} = $hmech;
-			push @plist, [ \&americanheadstones, \%hparams ];
+			push @plist, americanheadstones => [ \&americanheadstones, \%hparams ];
 		}
 	}
 
@@ -344,7 +344,7 @@ foreach my $person($ged->individuals()) {
 		my %fparams = %params;
 		$fparams{cache} = $fcache;
 		$fparams{mech} = $fmech;
-		push @plist, [ \&findagrave, \%fparams ];
+		push @plist, findagrave => [ \&findagrave, \%fparams ];
 	}
 
 	$entry = $bcache->get($str);
@@ -352,7 +352,7 @@ foreach my $person($ged->individuals()) {
 		my %bparams = %params;
 		$bparams{cache} = $bcache;
 		$bparams{mech} = $bmech;
-		push @plist, [ \&billiongraves, \%bparams ];
+		push @plist, billiongraves => [ \&billiongraves, \%bparams ];
 	}
 
 	$entry = $gcache->get($str);
@@ -362,7 +362,7 @@ foreach my $person($ged->individuals()) {
 		$gparams{cache2} = $gcache2;
 		$gparams{cache3} = $gcache3;
 		$gparams{mech} = $gmech;
-		push @plist, [ \&gravestonephotos, \%gparams ];
+		push @plist, gravestonephotos => [ \&gravestonephotos, \%gparams ];
 	}
 
 	$entry = $tf2cache->get($str);
@@ -371,7 +371,7 @@ foreach my $person($ged->individuals()) {
 		$tparams{cache} = $tf2cache;
 		$tparams{cache2} = $tf2cache2;
 		$tparams{mech} = $tf2mech;
-		push @plist, [ \&teafor2, \%tparams ];
+		push @plist, teafor2 => [ \&teafor2, \%tparams ];
 	}
 
 	$entry = $vcache->get($str);
@@ -380,7 +380,7 @@ foreach my $person($ged->individuals()) {
 		$vparams{cache} = $vcache;
 		$vparams{mech} = $vmech;
 		$vparams{jar} = $vjar;
-		push @plist, [ \&virtualcemetery, \%vparams ];
+		push @plist, virtualcemetery => [ \&virtualcemetery, \%vparams ];
 	}
 
 	$entry = $rcache->get($str);
@@ -388,7 +388,7 @@ foreach my $person($ged->individuals()) {
 		my %rparams = %params;
 		$rparams{cache} = $rcache;
 		$rparams{mech} = $rmech;
-		push @plist, [ \&restingspot, \%rparams ];
+		push @plist, restingspot => [ \&restingspot, \%rparams ];
 	}
 
 	prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
@@ -597,7 +597,7 @@ sub billiongraves {
 		keep_alive => 1,
 		agent => 'gedgrave',
 		from => 'njh@despammed.com',
-		timeout => 10,
+		timeout => 20,
 	);
 
 	$ua->env_proxy(1);
