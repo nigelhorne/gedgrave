@@ -193,7 +193,7 @@ foreach my $person($ged->individuals()) {
 		$dob = undef;
 	}
 
-	if((!defined($dod)) && ((!defined($dob)) || ($dob > 1900))) {
+	if((!defined($dod)) && defined($yob) && ($yob > 1900)) {
 		# Assuming living if we don't have a date of death and
 		# they were born after 1900
 		next;
