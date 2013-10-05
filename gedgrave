@@ -519,7 +519,7 @@ sub findagrave {
 				if($link =~ /www.findagrave.com\/cgi-bin\/fg.cgi\?.*&GSln=\Q$lastname\E.*&GSfn=\Q$firstname\E.*&GSdy=\Q$dod\E.*&GRid=\d+/i) {
 					$match = 1;
 				}
-			} else {
+			} elsif(defined($dob)) {
 				if($link =~ /www.findagrave.com\/cgi-bin\/fg.cgi\?.*&GSln=\Q$lastname\E.*&GSfn=\Q$firstname\E.*&GSby=\Q$dob\E.*&GRid=\d+/i) {
 					$match = 1;
 				}
