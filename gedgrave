@@ -112,7 +112,7 @@ my $hcache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 
 my $tf2cache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'teafor2', expires_in => '1 day');
 my $tf2cache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'teafor2', expires_in => '1 day');
 my $vcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'virtualcemetery', expires_in => '1 day');
-my $rcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'restingspot', expires_in => '1 day');
+# my $rcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'restingspot', expires_in => '1 day');
 
 # Set of WWW::Mechanize objects for each driver
 my $tmech = WWW::Mechanize::Cached::GZip->new();
@@ -383,13 +383,13 @@ foreach my $person($ged->individuals()) {
 		push @plist, virtualcemetery => [ \&virtualcemetery, \%vparams ];
 	}
 
-	$entry = $rcache->get($str);
-	if((!defined($entry)) || ($entry > 0)) {
-		my %rparams = %params;
-		$rparams{cache} = $rcache;
-		$rparams{mech} = $rmech;
-		push @plist, restingspot => [ \&restingspot, \%rparams ];
-	}
+	# $entry = $rcache->get($str);
+	# if((!defined($entry)) || ($entry > 0)) {
+		# my %rparams = %params;
+		# $rparams{cache} = $rcache;
+		# $rparams{mech} = $rmech;
+		# push @plist, restingspot => [ \&restingspot, \%rparams ];
+	# }
 
 	prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
 
