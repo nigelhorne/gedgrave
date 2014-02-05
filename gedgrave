@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 
 # Author Nigel Horne: njh@bandsman.co.uk
 # Copyright (C) 2012-2014, Nigel Horne
@@ -77,6 +77,8 @@ use Locale::SubCountry;
 use Memoize;
 use HTTP::Cookies;
 # use warnings::unused;
+# use Warn::Colorful(base => 'red', body => 'red', line => 'red');
+use Term::ANSIColor;
 
 my %opts;
 
@@ -393,7 +395,8 @@ foreach my $person($ged->individuals()) {
 		# push @plist, restingspot => [ \&restingspot, \%rparams ];
 	# }
 
-	prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
+	# prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
+	prun(@plist) || warn colored("$str: " . Parallel::Simple::errplus(), 'red');
 
 	# sleep(2);
 }
@@ -532,14 +535,14 @@ sub findagrave {
 				}
 			}
 			if($match) {
+				print colored($link, 'green'), "\n";
 				$count++;
-				print "\t$link\n";
 			}
 		}
 		$index += 40;
 		last if($index > $matches);
 
-		warn "$base&sr=$index";
+		# warn "$base&sr=$index";
 		my $r = $ua->get($base . "&sr=$index");
 		last unless($r->is_success);
 	}
@@ -1309,7 +1312,7 @@ sub virtualcemetery {
 				}
 			}
 			if($match) {
-				print "\t$link\n";
+				print colored($link, 'green'), "\n";
 				$count++;
 			}
 		}
