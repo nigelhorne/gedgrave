@@ -66,7 +66,7 @@ use Encode;
 use Gedcom;
 use WWW::Mechanize::Cached::GZip;
 use HTML::SimpleLinkExtor;
-use XML::LibXML;
+# use XML::LibXML;
 use LWP;
 use HTTP::Cache::Transparent;
 use CHI;
