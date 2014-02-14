@@ -924,7 +924,7 @@ sub tombfinder {
 					} elsif($dob && ($t !~ /\Q$dob\E/)) {
 						next;
 					}
-					print "\t$link\n";
+					print colored($link, 'green'), "\n";
 					$count++;
 				}
 			}
