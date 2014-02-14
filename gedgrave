@@ -11,7 +11,7 @@
 #	above e-mail.
 
 # Look up names in a Gedcom file on findagrave, billiongraves, gravestonephotos,
-# canadianheadstones and tombfinder
+# canadianheadstones, tombfinder and the Commonwealth War Graves Commission
 
 # As the size of these databases increases, one can expect more matches. Do
 # your part to help - sign up to billiongraves.com and start uploading pictures.
@@ -33,11 +33,11 @@
 # TODO: If no match, try the firstname as an initial
 # TODO: Optimise each driver to minimise impact on the websites
 # TODO: ozburials.com
-# TODO: www.cwgc.org/find-war-dead.aspx
 # TODO: http://canadianheadstones.com/other_index.htm (Ireland)
 # TODO: teafor2.com/mycemeteries.com
 # TODO: http://www.all-genealogysites.com/Cemeteries/
 # TODO: Handle alternative names
+# FIXME: CWGC commission code doesn't work
 # FIXME: tombfinder doesn't return exact matches, so you will
 #	get incorrect matches - but that's preferable to missing some
 # FIXME: Handle multiple pages (findagrave has been done)
@@ -79,11 +79,17 @@ use HTTP::Cookies;
 # use warnings::unused;
 # use Warn::Colorful(base => 'red', body => 'red', line => 'red');
 use Term::ANSIColor;
+use DateTime::Format::Natural;
+use Date::Calc;
 
 my %opts;
 
-getopts('c:s:', \%opts);
+getopts('c:s:d', \%opts);
 
+if($opts{d}) {	# list dependencies
+	print join("\n", map { s|/|::|g; s|\.pm$||; $_ } keys %INC);
+	exit;
+}
 my $default_country = $opts{c};
 my $default_subcountry = $opts{s};
 
@@ -116,6 +122,7 @@ my $hcache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 
 my $tf2cache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'teafor2', expires_in => '1 day');
 my $tf2cache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'teafor2', expires_in => '1 day');
 my $vcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'virtualcemetery', expires_in => '1 day');
+my $ccache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'commonwealth', expires_in => '1 day');
 # my $rcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'restingspot', expires_in => '1 day');
 
 # Set of WWW::Mechanize objects for each driver
@@ -142,6 +149,7 @@ $vjar->set_cookie(qw(
 	)
 );
 my $vmech = WWW::Mechanize::Cached::GZip->new(cookie_jar => $vjar);
+my $cmech = WWW::Mechanize::Cached::GZip->new();
 
 foreach my $person($ged->individuals()) {
 	# Gather the information on this person
@@ -296,6 +304,8 @@ foreach my $person($ged->individuals()) {
 		$firstname = $1;
 	}
 
+	next unless($lastname eq 'fordham');
+
 	my %params = (
 		dob => $dob,
 		dod => $dod,
@@ -385,6 +395,14 @@ foreach my $person($ged->individuals()) {
 		$vparams{mech} = $vmech;
 		$vparams{jar} = $vjar;
 		push @plist, virtualcemetery => [ \&virtualcemetery, \%vparams ];
+	}
+
+	$entry = $ccache->get($str);
+	if((!defined($entry)) || ($entry > 0)) {
+		my %cparams = %params;
+		$cparams{cache} = $ccache;
+		$cparams{mech} = $cmech;
+		push @plist, cwgc => [ \&cwgc, \%cparams ];
 	}
 
 	# $entry = $rcache->get($str);
@@ -650,6 +668,7 @@ sub canadianheadstones {
 
 	my $m = $$params{mech};
 	my $lastname = $$params{lastname};
+	my $firstname = $$params{firstname};
 	my $cache = $$params{cache};
 	my $cache2 = $$params{cache2};
 	my $str = stringify($params);
@@ -663,25 +682,16 @@ sub canadianheadstones {
 		my $r;
 
 		# HTTP::Response object
-		my $url = 'http://www.canadianheadstones.com/' . lc($dcsp);
+		my $url = 'http://www.canadianheadstones.com/' . lc($dcsp) . "/search.php/search=custom&cfield=last&ctype=ctns&ctxt=$lastname";
+		if(defined($firstname)) {
+			$url .= "&cfield2=first&ctype2=ctns&ctxt2=$firstname";
+		}
+		print "canadianheadstones = checking $url\n";
 		$r = $m->get($url);
 		unless($r->is_success) {
 			# Happens when looking for a province that isn't
 			# correct, often from the default_subscountry setting
 			warn "$url: $str: " . $r->status_line . "\n";
-			return;
-		}
-
-		my %fields = (
-			ctxt => $lastname,
-		);
-
-		$r = $m->submit_form(
-			form_number => 1,
-			fields => \%fields,
-		);
-		unless($r->is_success) {
-			warn $r->status_line . "\n";
 			return;
 		}
 
@@ -1252,7 +1262,7 @@ sub virtualcemetery {
 		fields => \%fields,
 	);
 	unless($r->is_success) {
-		warn 'virtualcemetery: ' . stringify($params) . ': ' . $r->status_line . "\n";
+		warn "virtualcemetery: $str:" . $r->status_line . "\n";
 		return;
 	}
 	if($r->content =~ /No matches/) {
@@ -1306,6 +1316,144 @@ sub virtualcemetery {
 						}
 					} elsif($dob) {
 						if($r->content() !~ /\Q$dob\E/) {
+							$match = 0;
+						}
+					}
+				}
+			}
+			if($match) {
+				print colored($link, 'green'), "\n";
+				$count++;
+			}
+		}
+	}
+	$cache->set($str, $count);
+}
+
+# Commonwealth War Graves Commission - covers graves of First and Second World Wars and possibly
+# later
+# Doesn't seem to work, most likely because of the bizarre JavaScript way that the site has been
+# written
+sub cwgc {
+	my $params = shift;
+
+	my $dob = $$params{dob};
+	my $dod = $$params{dod};
+	my $dcountry = $$params{dcountry};
+	my $firstname = $$params{firstname};
+	my $lastname = $$params{lastname};
+	my $m = $$params{mech};
+	my $cache = $$params{cache};
+	my $str = stringify($params);
+
+	return unless(defined($dod));
+
+	my $dfn = DateTime::Format::Natural->new(format => 'dd/mm/yy');
+	my $year = $dfn->parse_datetime($dod)->year();
+	if(($year < 1914) || ($year > 1945)) {
+		return;
+	}
+	unless(($year <= 1918) || ($year >= 1939)) {
+		return;
+	}
+
+	# print colored("Checking $str (died $year) on CWGC", 'red'), "\n";
+
+	# if(defined($dob)) {
+		# $dt = $dfn->parse_datetime($dob);
+		# # Assume not in CWGC if born before 1850
+		# if($dt->year() < 1850) {
+			# return;
+		# }
+		# # Assume not a war dead if born less than 16 years ago
+		
+		# my $daysold = Date::Calc::Delta_Days($dt->year(), $dt->month(), $dt->day(), Date::Calc::Today());
+		# if($daysold < 5844) {
+			# return;
+		# }
+	# }
+
+	my $r;
+	unless($m->back()) {
+		# HTTP::Response object
+		$r = $m->get('http://www.cwgc.org/find-war-dead.aspx');
+		unless($r->is_success) {
+			warn 'cwgc: ' . $r->status_line . "\n";
+			return;
+		}
+	}
+
+	my %fields = (
+		Surname => $lastname,
+	);
+
+	if($firstname) {
+		$m->set_visible([ radio => 'Forename' ]);
+		$fields{Forename} = $firstname;
+	}
+	$r = $m->submit_form(
+		form_number => 1,
+		fields => \%fields,
+	);
+	unless($r->is_success) {
+		warn "cwgc: $str: " . $r->status_line . "\n";
+		return;
+	}
+	if($r->content =~ /No results found/mi) {
+		$cache->set($str, 0);
+		return;
+	}
+	if($r->content =~ /(\d+)records\(s\) march your search criteria/mi) {
+		my $matches = $1;
+		$cache->set($str, $matches);
+		return if($matches == 0);
+
+		print "$str: checking $matches possible match";
+		if($matches > 1) {
+			print 'es';
+		}
+		print " on CWGC\n";
+	}
+
+	my $e = HTML::SimpleLinkExtor->new();
+	$e->remove_tags('img', 'script');
+	$e->parse($r->content);
+
+	if(scalar($e->links) == 0) {
+		# No links seems unlikely, there must be something wrong
+		die "cwgc: $str: parsing error - update the driver\n";
+	}
+
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 10,
+	);
+
+	$ua->env_proxy(1);
+
+	my $count = 0;
+	my $uc = uc($lastname);
+	my $dcsp = $$params{dcsp};
+
+	foreach my $link ($e->links) {
+		if($link =~ /find-war-dead\/casualty\/.+\/\Q$uc/) {
+			# print colored("Checking $link", 'red'), "\n";
+			my $r = $ua->get($link);
+			my $match = 0;
+			if($r->is_success) {
+				$match = 1;
+				my $content = $r->content();
+
+				if(defined($dcountry) && ($content !~ /\Q$dcountry\E/i)) {
+					$match = 0;
+				} elsif(defined($dcsp) && ($content !~ /\Q$dcsp\E/i)) {
+					$match = 0;
+				}
+				if($match) {
+					if($dod) {
+						if($r->content() !~ /\Q$dod\E/) {
 							$match = 0;
 						}
 					}
