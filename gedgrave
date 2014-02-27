@@ -587,7 +587,7 @@ sub billiongraves {
 	my $cache = $$params{cache};
 	my $str = stringify($params);
 
-	my $url = 'http://www.billiongraves.com/pages/search/index.php#';
+	my $url = 'http://billiongraves.com/pages/search/index.php#';
 	if($firstname) {
 		$url .= "given_names=$firstname";
 		# if($middlename) {
@@ -596,7 +596,7 @@ sub billiongraves {
 		$url .= '&';
 	}
 
-	$url .= "family_name=$lastname";
+	$url .= "family_names=$lastname";
 
 	if($dod) {
 		$url .= "&death_year=$dod&birth_year=";
@@ -604,22 +604,25 @@ sub billiongraves {
 		$url .= "&death_year=&birth_year=$dob";
 	}
 
-	$url .= '&year_range=1&lim=0&num=20&action=search&exact=true';
+	$url .= '&year_range=1&lim=0&num=20&action=search&exact=true&phonetic=false&record_type=0';
 
 	if($dcountry) {
 		my $d = $dcountry;
 		$d =~ s/\s/+/g;
+		if($d =~ /England|Scotland|Wales|Northern Ireland/) {
+			$d = 'United+Kingdom';
+		}
 		$url .= "&country=$d";
 		my $dcsp = $$params{dcsp};
 		if(($dcountry eq 'United States') && $dcsp) {
 			$dcsp = ucfirst(lc(us_state($dcsp)));
 			$dcsp =~ s/\s/+/g;
-			$url .= "&state=$dcsp&county=0";
+			$url .= "&state=$dcsp&county=null";
 		} else {
-			$url .= "&state=0&county=0";
+			$url .= "&state=null&county=null";
 		}
 	} else {
-		$url .= "country=0&state=0&county=0";
+		$url .= "country=null&state=null&county=null";
 	}
 
 	# print "Billiongraves, checking $url\n";
