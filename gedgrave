@@ -54,7 +54,6 @@
 use strict;
 use warnings;
 use diagnostics;
-# use warnings::unused;
 use feature 'state';
 
 # use Coro::LWP;
@@ -76,7 +75,7 @@ use Locale::CA;
 use Locale::SubCountry;
 use Memoize;
 use HTTP::Cookies;
-# use warnings::unused;
+use warnings::unused;
 # use Warn::Colorful(base => 'red', body => 'red', line => 'red');
 use Term::ANSIColor;
 use DateTime::Format::Natural;
@@ -84,16 +83,23 @@ use Date::Calc;
 
 my %opts;
 
-getopts('c:s:d', \%opts);
+getopts('c:n:s:d', \%opts);
 
 if($opts{d}) {	# list dependencies
+	print "List of dependencies you need to install from CPAN:\n";
 	print join("\n", map { s|/|::|g; s|\.pm$||; $_ } keys %INC);
+	print "\n";
 	exit;
 }
+die "Usage: gedgrave [ -c default-country-of-death ] [ -d ] [ -n lastname ] [ -s default-subcountry-of-death ] filename\n" unless($ARGV[0]);
+
 my $default_country = $opts{c};
 my $default_subcountry = $opts{s};
+my $surname_to_match;
 
-die "Usage: gedgrave [ -c default-country-of-death ] [ -s default-subcountry-of-death ] filename\n" unless($ARGV[0]);
+if($opts{n}) {
+	$surname_to_match = lc($opts{n});
+}
 
 my $ged = Gedcom->new(gedcom_file => $ARGV[0], read_only => 1);
 
@@ -304,7 +310,9 @@ foreach my $person($ged->individuals()) {
 		$firstname = $1;
 	}
 
-	next unless($lastname eq 'fordham');
+	if(defined($surname_to_match)) {
+		next unless($lastname eq $surname_to_match);
+	}
 
 	my %params = (
 		dob => $dob,
@@ -1332,12 +1340,10 @@ sub virtualcemetery {
 
 # Commonwealth War Graves Commission - covers graves of First and Second World Wars and possibly
 # later
-# Doesn't seem to work, most likely because of the bizarre JavaScript way that the site has been
-# written
+# Doesn't seem to work, most likely because of the bizarre JavaScript way that the site uses
 sub cwgc {
 	my $params = shift;
 
-	my $dob = $$params{dob};
 	my $dod = $$params{dod};
 	my $dcountry = $$params{dcountry};
 	my $firstname = $$params{firstname};
