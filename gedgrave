@@ -306,12 +306,13 @@ foreach my $person($ged->individuals()) {
 	if($lastname =~ /(.+)[\/\\]/) {
 		$lastname = $1;
 	}
-	if($firstname =~ /(.+)[\/\\]/) {
-		$firstname = $1;
-	}
 
 	if(defined($surname_to_match)) {
 		next unless($lastname eq $surname_to_match);
+	}
+
+	if($firstname =~ /(.+)[\/\\]/) {
+		$firstname = $1;
 	}
 
 	my %params = (
@@ -575,6 +576,8 @@ sub findagrave {
 	$cache->set($str, $count);
 }
 
+# Doesn't work.  Billiongraves used to work really well, but they've broken it recently. I suspect
+# it's another site using JavaScript jiggery pokery, and that's the problem
 sub billiongraves {
 	my $params = shift;
 
@@ -587,7 +590,7 @@ sub billiongraves {
 	my $cache = $$params{cache};
 	my $str = stringify($params);
 
-	my $url = 'http://billiongraves.com/pages/search/index.php#';
+	my $url = 'http://billiongraves.com/pages/search/#';
 	if($firstname) {
 		$url .= "given_names=$firstname";
 		# if($middlename) {
@@ -599,12 +602,12 @@ sub billiongraves {
 	$url .= "family_names=$lastname";
 
 	if($dod) {
-		$url .= "&death_year=$dod&birth_year=";
+		$url .= "&birth_year=&death_year=$dod";
 	} elsif($dob) {
-		$url .= "&death_year=&birth_year=$dob";
+		$url .= "&birth_year=$dob&death_year=";
 	}
 
-	$url .= '&year_range=1&lim=0&num=20&action=search&exact=true&phonetic=false&record_type=0';
+	$url .= '&year_range=5&lim=0&num=10&action=search&exact=true&phonetic=false&record_type=0';
 
 	if($dcountry) {
 		my $d = $dcountry;
@@ -617,12 +620,12 @@ sub billiongraves {
 		if(($dcountry eq 'United States') && $dcsp) {
 			$dcsp = ucfirst(lc(us_state($dcsp)));
 			$dcsp =~ s/\s/+/g;
-			$url .= "&state=$dcsp&county=null";
+			$url .= "&state=$dcsp&county=";
 		} else {
-			$url .= "&state=null&county=null";
+			$url .= "&state=&county=";
 		}
 	} else {
-		$url .= "country=null&state=null&county=null";
+		$url .= "country=&state=&county=";
 	}
 
 	# print "Billiongraves, checking $url\n";
