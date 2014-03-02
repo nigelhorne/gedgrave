@@ -67,7 +67,7 @@ use WWW::Mechanize::Cached::GZip;
 use HTML::SimpleLinkExtor;
 # use XML::LibXML;
 use LWP;
-use HTTP::Cache::Transparent;
+# use HTTP::Cache::Transparent;
 use CHI;
 use Locale::Object::Country;
 use Locale::US;
@@ -1558,7 +1558,7 @@ sub freereg {
 	# TODO: Finish the driver.  But before then I need to find out why
 	# for some reason it's not actually searching
 	# Also I need to sort out the county selection - do I need to match
-	# to a table of 3 character codes?
+	# to a table of 3 character codes (maybe Locale::SubCountry)?
 	# print "$str: checking possible match in FreeREG\n";
 }
 
