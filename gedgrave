@@ -129,6 +129,7 @@ my $tf2cache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace =>
 my $tf2cache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'teafor2', expires_in => '1 day');
 my $vcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'virtualcemetery', expires_in => '1 day');
 my $ccache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'commonwealth', expires_in => '1 day');
+my $freeregcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'freereg', expires_in => '1 day');
 # my $rcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'restingspot', expires_in => '1 day');
 
 # Set of WWW::Mechanize objects for each driver
@@ -138,6 +139,7 @@ my $fmech = WWW::Mechanize::Cached::GZip->new();
 my $gmech = WWW::Mechanize::Cached::GZip->new();
 my $hmech = WWW::Mechanize::Cached::GZip->new();
 my $tf2mech = WWW::Mechanize::Cached::GZip->new();
+my $freeregmech = WWW::Mechanize::Cached::GZip->new();
 # my $rmech = WWW::Mechanize::Cached::GZip->new();
 
 # This is needed because if you're outside the US, genealogy.com unhelpfully
@@ -269,6 +271,13 @@ foreach my $person($ged->individuals()) {
 
 	if($dcsp && $dcountry && ($dcsp eq $dcountry)) {
 		$dcsp = undef;
+	}
+	# If all else fails, try to extract the CSP as the next to last field in the death place
+	if((!defined($dcsp)) && defined($dcountry)) {
+		my $d = $person->get_value('death place');
+		if($d =~ /[\s\w,\.]*,\s?(.+),\s*\Q$dcountry\E/i) {
+			$dcsp = $1;
+		}
 	}
 
 	if((!defined($dcountry)) && defined($default_country)) {
@@ -412,6 +421,14 @@ foreach my $person($ged->individuals()) {
 		$cparams{cache} = $ccache;
 		$cparams{mech} = $cmech;
 		push @plist, cwgc => [ \&cwgc, \%cparams ];
+	}
+
+	$entry = $freeregcache->get($str);
+	if((!defined($entry)) || ($entry > 0)) {
+		my %fparams = %params;
+		$fparams{cache} = $freeregcache;
+		$fparams{mech} = $freeregmech;
+		push @plist, freereg => [ \&freereg, \%fparams ];
 	}
 
 	# $entry = $rcache->get($str);
@@ -612,7 +629,7 @@ sub billiongraves {
 	if($dcountry) {
 		my $d = $dcountry;
 		$d =~ s/\s/+/g;
-		if($d =~ /England|Scotland|Wales|Northern Ireland/) {
+		if($d =~ /England|Scotland|Wales|Northern Ireland|United kingdom/i) {
 			$d = 'United+Kingdom';
 		}
 		$url .= "&country=$d";
@@ -1478,6 +1495,71 @@ sub cwgc {
 		}
 	}
 	$cache->set($str, $count);
+}
+
+sub freereg {
+	my $params = shift;
+
+	my $dod = $$params{dod};
+	my $dcountry = $$params{dcountry};
+	my $dcsp = $$params{dcsp};
+	my $firstname = $$params{firstname};
+	my $lastname = $$params{lastname};
+	my $cache = $$params{cache};
+	my $str = stringify($params);
+	my $m = $$params{mech};
+
+	unless(defined($dcountry) && ($dcountry =~ /England|Scotland|Wales|Northern Ireland|United kingdom/i)) {
+		return;
+	}
+	unless($dcsp) {
+		return;
+	}
+
+	my $r;
+	unless($m->back()) {
+		# HTTP::Response object
+		$r = $m->get('http://www.freereg.org.uk/cgi/Search.pl');
+		unless($r->is_success) {
+			warn 'freereg: ' . $r->status_line . "\n";
+			return;
+		}
+	}
+
+	my %fields = (
+		Surname => $lastname,
+		Forename => $firstname,
+		Year => $dod,
+		YearRange => 2,
+		Soundex => 'ON',
+		RecordType => 'Burials',
+		Action => 'Search',
+	);
+
+	$m->form_number(2);
+	$m->select('County', $dcsp);
+	$m->select('County', 'Kent');
+	$m->select('County', 'KEN');
+	$m->select('Place', 'All');
+	$m->set_fields(%fields);
+	$r = $m->submit_form();
+
+	unless($r->is_success) {
+		warn "freereg: $str: " . $r->status_line . "\n";
+		return;
+	}
+	if($r->content =~ /Error/) {
+		die "freereg: $str: parsing error - update the driver\n";
+	}
+	if($r->content =~ /0 matches were found for this query/) {
+		$cache->set($str, 0);
+		return;
+	}
+	# TODO: Finish the driver.  But before then I need to find out why
+	# for some reason it's not actually searching
+	# Also I need to sort out the county selection - do I need to match
+	# to a table of 3 character codes?
+	# print "$str: checking possible match in FreeREG\n";
 }
 
 sub restingspot {
