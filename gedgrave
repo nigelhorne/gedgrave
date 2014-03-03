@@ -80,6 +80,7 @@ use warnings::unused;
 use Term::ANSIColor;
 use DateTime::Format::Natural;
 use Date::Calc;
+use File::Spec;
 
 my %opts;
 
@@ -106,7 +107,7 @@ my $ged = Gedcom->new(gedcom_file => $ARGV[0], read_only => 1);
 # Not when running in Parallel - you get HTML::Form errors
 # becuse HTTP::Cache::Transparent is not thread safe.
 # HTTP::Cache::Transparent::init( {
-	# BasePath => '/tmp/cache/http-cache-transparent',
+	# BasePath => $cachedir . '/http-cache-transparent',
 	# # Verbose => 1,
 	# NoUpdate => 60 * 60,
 	# MaxAge => 15 * 24} ) || die "gedgrave/cache: $!";
@@ -116,21 +117,23 @@ my $ged = Gedcom->new(gedcom_file => $ARGV[0], read_only => 1);
 
 memoize('check_country');
 
+my $cachedir = File::Spec->catfile(File::Spec->tmpdir(), 'cache');
+
 # Set of caches for each driver
-my $tcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'tombfinder', expires_in => '1 day');
-my $bcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'billiongraves', expires_in => '1 day');
-my $fcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'findagrave', expires_in => '1 day');
-my $gcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'gravestonephotos', expires_in => '1 day');
-my $gcache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'gravestonephotos2', expires_in => '1 day');
-my $gcache3 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'gravestonephotos3', expires_in => '1 day');
-my $hcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'headstones', expires_in => '1 day');
-my $hcache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'headstones2', expires_in => '1 day');
-my $tf2cache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'teafor2', expires_in => '1 day');
-my $tf2cache2 = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'teafor2', expires_in => '1 day');
-my $vcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'virtualcemetery', expires_in => '1 day');
-my $ccache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'commonwealth', expires_in => '1 day');
-my $freeregcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'freereg', expires_in => '1 day');
-# my $rcache = CHI->new(driver => 'File', root_dir => '/tmp/cache', namespace => 'restingspot', expires_in => '1 day');
+my $tcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'tombfinder', expires_in => '1 day');
+my $bcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'billiongraves', expires_in => '1 day');
+my $fcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'findagrave', expires_in => '1 day');
+my $gcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'gravestonephotos', expires_in => '1 day');
+my $gcache2 = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'gravestonephotos2', expires_in => '1 day');
+my $gcache3 = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'gravestonephotos3', expires_in => '1 day');
+my $hcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'headstones', expires_in => '1 day');
+my $hcache2 = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'headstones2', expires_in => '1 day');
+my $tf2cache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'teafor2', expires_in => '1 day');
+my $tf2cache2 = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'teafor2', expires_in => '1 day');
+my $vcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'virtualcemetery', expires_in => '1 day');
+my $ccache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'commonwealth', expires_in => '1 day');
+my $freeregcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'freereg', expires_in => '1 day');
+# my $rcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'restingspot', expires_in => '1 day');
 
 # Set of WWW::Mechanize objects for each driver
 my $tmech = WWW::Mechanize::Cached::GZip->new();
@@ -1526,6 +1529,8 @@ sub freereg {
 		}
 	}
 
+	state $gb ||= Locale::SubCountry->new('gb');
+
 	my %fields = (
 		Surname => $lastname,
 		Forename => $firstname,
@@ -1539,10 +1544,10 @@ sub freereg {
 	$m->form_number(2);
 	$m->select('County', $dcsp);
 	$m->select('County', 'Kent');
-	$m->select('County', 'KEN');
+	$m->select('County', $gb->code($dcsp));
 	$m->select('Place', 'All');
 	$m->set_fields(%fields);
-	$r = $m->submit_form();
+	$r = $m->click();
 
 	unless($r->is_success) {
 		warn "freereg: $str: " . $r->status_line . "\n";
@@ -1555,11 +1560,30 @@ sub freereg {
 		$cache->set($str, 0);
 		return;
 	}
-	# TODO: Finish the driver.  But before then I need to find out why
-	# for some reason it's not actually searching
-	# Also I need to sort out the county selection - do I need to match
-	# to a table of 3 character codes (maybe Locale::SubCountry)?
 	# print "$str: checking possible match in FreeREG\n";
+
+	my $e = HTML::SimpleLinkExtor->new();
+	$e->remove_tags('img', 'script');
+	$e->parse(Encode::decode_utf8($r->content));
+
+	if(scalar($e->links) == 0) {
+		# No links seems unlikely, there must be something wrong
+		die "freereg: $str: parsing error - update the driver\n";
+	}
+
+	my $count = 0;
+	foreach my $link ($e->links) {
+		unless($link =~ /SearchResults\.pl/) {
+			next;
+		}
+
+		print colored($link, 'green'), "\n";
+		$count++;
+	}
+	unless($count) {
+		die "freereg: $str: parsing error - update the driver\n";
+	}
+	$cache->set($str, $count);
 }
 
 sub restingspot {
