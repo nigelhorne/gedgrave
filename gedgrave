@@ -1535,16 +1535,21 @@ sub freereg {
 		Surname => $lastname,
 		Forename => $firstname,
 		Year => $dod,
-		YearRange => 2,
-		Soundex => 'ON',
+		YearRange => 0,
+		Soundex => 'OFF', # Yes - FreeREG's Soundex has too many false positives
 		RecordType => 'Burials',
 		Action => 'Search',
 	);
 
 	$m->form_number(2);
 	$m->select('County', $dcsp);
-	$m->select('County', 'Kent');
-	$m->select('County', $gb->code($dcsp));
+	if($dscp =~ /Sussex/i) {
+		$m->select('County', 'SSX');
+	} elsif($dcsp =~ /London|Middlesex/i) {
+		$m->select('County', 'MDX');
+	} else {
+		$m->select('County', $gb->code($dcsp));
+	}
 	$m->select('Place', 'All');
 	$m->set_fields(%fields);
 	$r = $m->click();
@@ -1560,7 +1565,7 @@ sub freereg {
 		$cache->set($str, 0);
 		return;
 	}
-	# print "$str: checking possible match in FreeREG\n";
+	print "$str: checking possible match in FreeREG\n";
 
 	my $e = HTML::SimpleLinkExtor->new();
 	$e->remove_tags('img', 'script');
@@ -1577,7 +1582,7 @@ sub freereg {
 			next;
 		}
 
-		print colored($link, 'green'), "\n";
+		print colored("http://www.freereg.org.uk/cgi/$link", 'green'), "\n";
 		$count++;
 	}
 	unless($count) {
