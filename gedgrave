@@ -1398,7 +1398,7 @@ sub cwgc {
 			# return;
 		# }
 		# # Assume not a war dead if born less than 16 years ago
-		
+
 		# my $daysold = Date::Calc::Delta_Days($dt->year(), $dt->month(), $dt->day(), Date::Calc::Today());
 		# if($daysold < 5844) {
 			# return;
@@ -1543,7 +1543,7 @@ sub freereg {
 
 	$m->form_number(2);
 	$m->select('County', $dcsp);
-	if($dscp =~ /Sussex/i) {
+	if($dcsp =~ /Sussex/i) {
 		$m->select('County', 'SSX');
 	} elsif($dcsp =~ /London|Middlesex/i) {
 		$m->select('County', 'MDX');
