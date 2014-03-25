@@ -1503,6 +1503,7 @@ sub cwgc {
 sub freereg {
 	my $params = shift;
 
+	my $dob = $$params{dob};
 	my $dod = $$params{dod};
 	my $dcountry = $$params{dcountry};
 	my $dcsp = $$params{dcsp};
@@ -1576,17 +1577,84 @@ sub freereg {
 		die "freereg: $str: parsing error - update the driver\n";
 	}
 
+	state $ua ||= LWP::UserAgent->new(
+		keep_alive => 1,
+		agent => 'gedgrave',
+		from => 'njh@despammed.com',
+		timeout => 10,
+	);
+
+	$ua->env_proxy(1);
+
 	my $count = 0;
 	foreach my $link ($e->links) {
 		unless($link =~ /SearchResults\.pl/) {
 			next;
 		}
 
-		print colored("http://www.freereg.org.uk/cgi/$link", 'green'), "\n";
+		my $url = "http://www.freereg.org.uk/cgi/$link";
+
+		if($dob || $dod) {
+			my $r = $ua->get($url);
+			unless($r->is_success) {
+				warn "freereg ($url): " . stringify($params) . ': ' . $r->status_line . "\n";
+				return;
+			}
+			my $content = $r->content();
+
+			if($content =~ /Search session timed out/) {
+				# This is pretty annoying...
+				# TODO: clear WWW::Mechanize cache and try again
+				next;
+			}
+			if($content =~ /BurialDate<\/TD><TD>(.*?)<\/TD>/) {
+				my $burial_year = $1;
+
+				if($content =~ /Age<\/TD><TD>(\d+?)<\/TD>/) {
+					my $age = $1;
+					if($dod && !defined($dob)) {
+						# Estimate date of birth to reduce false positives
+						$dob = $dod - $age;
+					}
+					elsif($dob) {
+						print "$dob; $age; $burial_year\n";
+						if((($dob + $age) > ($burial_year + 2))) {
+							next;
+						}
+						if((($dob + $age) < ($burial_year - 2))) {
+							next;
+						}
+					}
+				}
+
+				my $dfn = DateTime::Format::Natural->new(format => 'dd/mm/yy');
+				my $year = $dfn->parse_datetime($burial_year)->year();
+				if($dod) {
+					if($year > $dod + 2) {
+						# This record is of someone buried way after
+						# current person died, so it can't be a match
+						next;
+					}
+				}
+				if($dob) {
+					if($year < $dob) {
+						# This record is of someone buried before the
+						# current person was born, so it can't be a match
+						next;
+					}
+					if($year > $dob + 100) {
+						# This record is of someone buried way after
+						# current person was born, so it can't be a match
+						next;
+					}
+				}
+			} else {
+				die "freereg ($url): $str: parsing error - update the driver\n";
+			}
+		}
+
+		print colored($url, 'green'), "\n";
 		$count++;
-	}
-	unless($count) {
-		die "freereg: $str: parsing error - update the driver\n";
 	}
 	$cache->set($str, $count);
 }
