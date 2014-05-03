@@ -38,6 +38,7 @@
 # TODO: http://www.all-genealogysites.com/Cemeteries/
 # TODO: Handle alternative names
 # FIXME: CWGC commission code doesn't work
+# FIXME: billiongraves keeps changing
 # FIXME: tombfinder doesn't return exact matches, so you will
 #	get incorrect matches - but that's preferable to missing some
 # FIXME: Handle multiple pages (findagrave has been done)
@@ -59,7 +60,7 @@ use feature 'state';
 # use Coro::LWP;
 # use Coro;
 # use Coro::EV;
-use Parallel::Simple qw(prun);
+use Parallel::Simple qw(prun);	# FIXME: Doesn't work on Windows
 use Getopt::Std;
 use Encode;
 use Gedcom;
@@ -344,108 +345,209 @@ foreach my $person($ged->individuals()) {
 	my @plist = ();
 
 	# Submit this person to each driver - one driver per site
-	if((!defined($dcountry)) || ($dcountry eq 'United States')) {
-		$entry = $tcache->get($str);
+	unless($^O eq 'MSWin32') {
+		if((!defined($dcountry)) || ($dcountry eq 'United States')) {
+			$entry = $tcache->get($str);
+			if((!defined($entry)) || ($entry > 0)) {
+				my %tparams = %params;
+				$tparams{cache} = $tcache;
+				$tparams{mech} = $tmech;
+				push @plist, tombfinder => [ \&tombfinder, \%tparams ];
+			}
+		} elsif(defined($dcountry) && ($dcountry eq 'Canada')) {
+			$entry = $hcache->get($str);
+			if((!defined($entry)) || ($entry > 0)) {
+				my %cparams = %params;
+				$cparams{cache} = $hcache;
+				$cparams{cache2} = $hcache2;
+				$cparams{mech} = $hmech;
+				push @plist, canadianheadstones => [ \&canadianheadstones, \%cparams ];
+			}
+		}
+
+		if(defined($dcountry) && ($dcountry eq 'United States')) {
+			$entry = $hcache->get($str);
+			if((!defined($entry)) || ($entry > 0)) {
+				my %hparams = %params;
+				$hparams{cache} = $hcache;
+				$hparams{cache2} = $hcache2;
+				$hparams{mech} = $hmech;
+				push @plist, americanheadstones => [ \&americanheadstones, \%hparams ];
+			}
+		}
+
+		$entry = $fcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %fparams = %params;
+			$fparams{cache} = $fcache;
+			$fparams{mech} = $fmech;
+			push @plist, findagrave => [ \&findagrave, \%fparams ];
+		}
+
+		$entry = $bcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %bparams = %params;
+			$bparams{cache} = $bcache;
+			$bparams{mech} = $bmech;
+			push @plist, billiongraves => [ \&billiongraves, \%bparams ];
+		}
+
+		$entry = $gcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %gparams = %params;
+			$gparams{cache} = $gcache;
+			$gparams{cache2} = $gcache2;
+			$gparams{cache3} = $gcache3;
+			$gparams{mech} = $gmech;
+			push @plist, gravestonephotos => [ \&gravestonephotos, \%gparams ];
+		}
+
+		$entry = $tf2cache->get($str);
 		if((!defined($entry)) || ($entry > 0)) {
 			my %tparams = %params;
-			$tparams{cache} = $tcache;
-			$tparams{mech} = $tmech;
-			push @plist, tombfinder => [ \&tombfinder, \%tparams ];
+			$tparams{cache} = $tf2cache;
+			$tparams{cache2} = $tf2cache2;
+			$tparams{mech} = $tf2mech;
+			push @plist, teafor2 => [ \&teafor2, \%tparams ];
 		}
-	} elsif(defined($dcountry) && ($dcountry eq 'Canada')) {
-		$entry = $hcache->get($str);
+
+		$entry = $vcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %vparams = %params;
+			$vparams{cache} = $vcache;
+			$vparams{mech} = $vmech;
+			$vparams{jar} = $vjar;
+			push @plist, virtualcemetery => [ \&virtualcemetery, \%vparams ];
+		}
+
+		$entry = $ccache->get($str);
 		if((!defined($entry)) || ($entry > 0)) {
 			my %cparams = %params;
-			$cparams{cache} = $hcache;
-			$cparams{cache2} = $hcache2;
-			$cparams{mech} = $hmech;
-			push @plist, canadianheadstones => [ \&canadianheadstones, \%cparams ];
+			$cparams{cache} = $ccache;
+			$cparams{mech} = $cmech;
+			push @plist, cwgc => [ \&cwgc, \%cparams ];
 		}
-	}
 
-	if(defined($dcountry) && ($dcountry eq 'United States')) {
-		$entry = $hcache->get($str);
+		$entry = $freeregcache->get($str);
 		if((!defined($entry)) || ($entry > 0)) {
-			my %hparams = %params;
-			$hparams{cache} = $hcache;
-			$hparams{cache2} = $hcache2;
-			$hparams{mech} = $hmech;
-			push @plist, americanheadstones => [ \&americanheadstones, \%hparams ];
+			my %fparams = %params;
+			$fparams{cache} = $freeregcache;
+			$fparams{mech} = $freeregmech;
+			push @plist, freereg => [ \&freereg, \%fparams ];
 		}
+
+		# $entry = $rcache->get($str);
+		# if((!defined($entry)) || ($entry > 0)) {
+			# my %rparams = %params;
+			# $rparams{cache} = $rcache;
+			# $rparams{mech} = $rmech;
+			# push @plist, restingspot => [ \&restingspot, \%rparams ];
+		# }
+
+			# prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
+			prun(@plist) || warn colored("$str: " . Parallel::Simple::errplus(), 'red');
+		# sleep(2);
+	} else {
+		# Parallel::Simple fails on Windows with
+		#	Attempt to free non-existent shared string
+		if((!defined($dcountry)) || ($dcountry eq 'United States')) {
+			$entry = $tcache->get($str);
+			if((!defined($entry)) || ($entry > 0)) {
+				my %tparams = %params;
+				$tparams{cache} = $tcache;
+				$tparams{mech} = $tmech;
+				tombfinder(\%tparams);
+			}
+		} elsif(defined($dcountry) && ($dcountry eq 'Canada')) {
+			$entry = $hcache->get($str);
+			if((!defined($entry)) || ($entry > 0)) {
+				my %cparams = %params;
+				$cparams{cache} = $hcache;
+				$cparams{cache2} = $hcache2;
+				$cparams{mech} = $hmech;
+				canadianheadstones(\%cparams);
+			}
+		}
+
+		if(defined($dcountry) && ($dcountry eq 'United States')) {
+			$entry = $hcache->get($str);
+			if((!defined($entry)) || ($entry > 0)) {
+				my %hparams = %params;
+				$hparams{cache} = $hcache;
+				$hparams{cache2} = $hcache2;
+				$hparams{mech} = $hmech;
+				americanheadstones(\%hparams);
+			}
+		}
+
+		$entry = $fcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %fparams = %params;
+			$fparams{cache} = $fcache;
+			$fparams{mech} = $fmech;
+			findagrave(\%fparams);
+		}
+
+		$entry = $bcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %bparams = %params;
+			$bparams{cache} = $bcache;
+			$bparams{mech} = $bmech;
+			billiongraves(\%bparams);
+		}
+
+		$entry = $gcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %gparams = %params;
+			$gparams{cache} = $gcache;
+			$gparams{cache2} = $gcache2;
+			$gparams{cache3} = $gcache3;
+			$gparams{mech} = $gmech;
+			gravestonephotos(\%gparams);
+		}
+
+		$entry = $tf2cache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %tparams = %params;
+			$tparams{cache} = $tf2cache;
+			$tparams{cache2} = $tf2cache2;
+			$tparams{mech} = $tf2mech;
+			teafor2(\%tparams);
+		}
+
+		$entry = $vcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %vparams = %params;
+			$vparams{cache} = $vcache;
+			$vparams{mech} = $vmech;
+			$vparams{jar} = $vjar;
+			virtualcemetery(\%vparams);
+		}
+
+		$entry = $ccache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %cparams = %params;
+			$cparams{cache} = $ccache;
+			$cparams{mech} = $cmech;
+			cwgc(\%cparams);
+		}
+
+		$entry = $freeregcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my %fparams = %params;
+			$fparams{cache} = $freeregcache;
+			$fparams{mech} = $freeregmech;
+			freereg(\%fparams);
+		}
+
+		# $entry = $rcache->get($str);
+		# if((!defined($entry)) || ($entry > 0)) {
+			# my %rparams = %params;
+			# $rparams{cache} = $rcache;
+			# $rparams{mech} = $rmech;
+			# restingspot(\%rparams);
+		# }
 	}
-
-	$entry = $fcache->get($str);
-	if((!defined($entry)) || ($entry > 0)) {
-		my %fparams = %params;
-		$fparams{cache} = $fcache;
-		$fparams{mech} = $fmech;
-		push @plist, findagrave => [ \&findagrave, \%fparams ];
-	}
-
-	$entry = $bcache->get($str);
-	if((!defined($entry)) || ($entry > 0)) {
-		my %bparams = %params;
-		$bparams{cache} = $bcache;
-		$bparams{mech} = $bmech;
-		push @plist, billiongraves => [ \&billiongraves, \%bparams ];
-	}
-
-	$entry = $gcache->get($str);
-	if((!defined($entry)) || ($entry > 0)) {
-		my %gparams = %params;
-		$gparams{cache} = $gcache;
-		$gparams{cache2} = $gcache2;
-		$gparams{cache3} = $gcache3;
-		$gparams{mech} = $gmech;
-		push @plist, gravestonephotos => [ \&gravestonephotos, \%gparams ];
-	}
-
-	$entry = $tf2cache->get($str);
-	if((!defined($entry)) || ($entry > 0)) {
-		my %tparams = %params;
-		$tparams{cache} = $tf2cache;
-		$tparams{cache2} = $tf2cache2;
-		$tparams{mech} = $tf2mech;
-		push @plist, teafor2 => [ \&teafor2, \%tparams ];
-	}
-
-	$entry = $vcache->get($str);
-	if((!defined($entry)) || ($entry > 0)) {
-		my %vparams = %params;
-		$vparams{cache} = $vcache;
-		$vparams{mech} = $vmech;
-		$vparams{jar} = $vjar;
-		push @plist, virtualcemetery => [ \&virtualcemetery, \%vparams ];
-	}
-
-	$entry = $ccache->get($str);
-	if((!defined($entry)) || ($entry > 0)) {
-		my %cparams = %params;
-		$cparams{cache} = $ccache;
-		$cparams{mech} = $cmech;
-		push @plist, cwgc => [ \&cwgc, \%cparams ];
-	}
-
-	$entry = $freeregcache->get($str);
-	if((!defined($entry)) || ($entry > 0)) {
-		my %fparams = %params;
-		$fparams{cache} = $freeregcache;
-		$fparams{mech} = $freeregmech;
-		push @plist, freereg => [ \&freereg, \%fparams ];
-	}
-
-	# $entry = $rcache->get($str);
-	# if((!defined($entry)) || ($entry > 0)) {
-		# my %rparams = %params;
-		# $rparams{cache} = $rcache;
-		# $rparams{mech} = $rmech;
-		# push @plist, restingspot => [ \&restingspot, \%rparams ];
-	# }
-
-	# prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
-	prun(@plist) || warn colored("$str: " . Parallel::Simple::errplus(), 'red');
-
-	# sleep(2);
 }
 
 sub findagrave {
@@ -596,9 +698,12 @@ sub findagrave {
 	$cache->set($str, $count);
 }
 
-# Doesn't work.  Billiongraves used to work really well, but they've broken it recently. I suspect
-# it's another site using JavaScript jiggery pokery, and that's the problem
+# Doesn't work.  Billiongraves used to work really well, but they've broken it
+# recently. I suspect it's another site using JavaScript jiggery pokery, and
+# that's the problem
 sub billiongraves {
+	return;
+
 	my $params = shift;
 
 	my $dob = $$params{dob};
@@ -1356,7 +1461,11 @@ sub virtualcemetery {
 				}
 			}
 			if($match) {
-				print colored($link, 'green'), "\n";
+				if($^O eq 'MSWin32') {
+					print "\t$link\n";
+				} else {
+					print colored($link, 'green'), "\n";
+				}
 				$count++;
 			}
 		}
