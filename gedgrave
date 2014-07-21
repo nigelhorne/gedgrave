@@ -1718,15 +1718,17 @@ sub freereg {
 			}
 			if($content =~ /BurialDate<\/TD><TD>(.*?)<\/TD>/) {
 				my $burial_year = $1;
+				if($burial_year && ($burial_year =~ /.*?(\d{3,4})/)) {
+					$burial_year = $1;
+				}
 
 				if($content =~ /Age<\/TD><TD>(\d+?)<\/TD>/) {
 					my $age = $1;
 					if($dod && !defined($dob)) {
 						# Estimate date of birth to reduce false positives
 						$dob = $dod - $age;
-					}
-					elsif($dob) {
-						print "$dob; $age; $burial_year\n";
+					} elsif($dob) {
+						print "freereg: $dob; $age; $burial_year\n";
 						if((($dob + $age) > ($burial_year + 2))) {
 							next;
 						}
