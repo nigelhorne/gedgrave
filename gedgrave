@@ -85,7 +85,7 @@ use File::Spec;
 
 my %opts;
 
-getopts('c:n:s:d', \%opts);
+getopts('c:n:s:dv', \%opts);
 
 if($opts{d}) {	# list dependencies
 	print "List of dependencies you need to install from CPAN:\n";
@@ -93,10 +93,11 @@ if($opts{d}) {	# list dependencies
 	print "\n";
 	exit;
 }
-die "Usage: gedgrave [ -c default-country-of-death ] [ -d ] [ -n lastname ] [ -s default-subcountry-of-death ] filename\n" unless($ARGV[0]);
+die "Usage: gedgrave [ -c default-country-of-death ] [ -d ] [ -n lastname ] [ -s default-subcountry-of-death ] [ -v ] filename\n" unless($ARGV[0]);
 
 my $default_country = $opts{c};
 my $default_subcountry = $opts{s};
+my $verbose = $opts{v};
 my $surname_to_match;
 
 if($opts{n}) {
@@ -1728,7 +1729,7 @@ sub freereg {
 						# Estimate date of birth to reduce false positives
 						$dob = $dod - $age;
 					} elsif($dob) {
-						print "freereg: $dob; $age; $burial_year\n";
+						print "freereg: $dob; $age; $burial_year\n" if($verbose);
 						if((($dob + $age) > ($burial_year + 2))) {
 							next;
 						}
