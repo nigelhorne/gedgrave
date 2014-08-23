@@ -366,16 +366,17 @@ foreach my $person($ged->individuals()) {
 			}
 		}
 
-		if(defined($dcountry) && ($dcountry eq 'United States')) {
-			$entry = $hcache->get($str);
-			if((!defined($entry)) || ($entry > 0)) {
-				my %hparams = %params;
-				$hparams{cache} = $hcache;
-				$hparams{cache2} = $hcache2;
-				$hparams{mech} = $hmech;
-				push @plist, americanheadstones => [ \&americanheadstones, \%hparams ];
-			}
-		}
+		# Cybersquatted
+		# if(defined($dcountry) && ($dcountry eq 'United States')) {
+			# $entry = $hcache->get($str);
+			# if((!defined($entry)) || ($entry > 0)) {
+				# my %hparams = %params;
+				# $hparams{cache} = $hcache;
+				# $hparams{cache2} = $hcache2;
+				# $hparams{mech} = $hmech;
+				# push @plist, americanheadstones => [ \&americanheadstones, \%hparams ];
+			# }
+		# }
 
 		$entry = $fcache->get($str);
 		if((!defined($entry)) || ($entry > 0)) {
@@ -470,16 +471,17 @@ foreach my $person($ged->individuals()) {
 			}
 		}
 
-		if(defined($dcountry) && ($dcountry eq 'United States')) {
-			$entry = $hcache->get($str);
-			if((!defined($entry)) || ($entry > 0)) {
-				my %hparams = %params;
-				$hparams{cache} = $hcache;
-				$hparams{cache2} = $hcache2;
-				$hparams{mech} = $hmech;
-				americanheadstones(\%hparams);
-			}
-		}
+		# Cybersquatted
+		# if(defined($dcountry) && ($dcountry eq 'United States')) {
+			# $entry = $hcache->get($str);
+			# if((!defined($entry)) || ($entry > 0)) {
+				# my %hparams = %params;
+				# $hparams{cache} = $hcache;
+				# $hparams{cache2} = $hcache2;
+				# $hparams{mech} = $hmech;
+				# americanheadstones(\%hparams);
+			# }
+		# }
 
 		$entry = $fcache->get($str);
 		if((!defined($entry)) || ($entry > 0)) {
@@ -918,10 +920,17 @@ sub americanheadstones {
 		$fields{first} = $firstname;
 	}
 
-	$r = $m->submit_form(
-		form_number => 1,
-		fields => \%fields,
-	);
+	eval {
+		$r = $m->submit_form(
+			form_number => 1,
+			fields => \%fields,
+		);
+	};
+	if($@) {
+		warn "$url: $@";
+		$cache->set($str, 0);
+		return;
+	}
 	unless($r->is_success) {
 		warn "$url: " . $r->status_line . "\n";
 		return;
@@ -1708,6 +1717,10 @@ sub freereg {
 			my $r = $ua->get($url);
 			unless($r->is_success) {
 				warn "freereg ($url): " . stringify($params) . ': ' . $r->status_line . "\n";
+				if($r->status_line eq '500 read timeout') {
+					# TODO: clear WWW::Mechanize cache and try again
+					next;
+				}
 				return;
 			}
 			my $content = $r->content();
@@ -1759,6 +1772,13 @@ sub freereg {
 						# current person was born, so it can't be a match
 						next;
 					}
+				}
+				if($content =~ /Place<\/TD><TD>(.*?)<\/TD>/) {
+					# Print this out because the search
+					# is based by county and we can
+					# use the place to decide which URLs
+					# to not investigate further.
+					print "Place of death: $1: ";
 				}
 			} else {
 				die "freereg ($url): $str: parsing error - update the driver\n";
