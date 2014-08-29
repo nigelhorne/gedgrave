@@ -242,35 +242,35 @@ foreach my $person($ged->individuals()) {
 	}
 
 	if(defined($dcountry)) {
-		$dcountry =~ s/\s+$//;
-		if($dcountry =~ /(.+?)\./) {
+		my $d =~ s/\s+$//;
+		if($d =~ /(.+?)\./) {
 			unless($1 eq 'Co') {
-				$dcountry = $1;
+				$d = $1;
 			}
 		}
-		$dcountry =~ s/\)//g;
-		$dcountry =~ s/[;.].*//;
+		$d =~ s/\)//g;
+		$d =~ s/[;.].*//;
 		my ($new_country, $csp) = check_country({
 			csp => $dcsp,
-			country => $dcountry,
+			country => $d,
 			default_country => $default_country,
 		});
 		if(defined($new_country)) {
-			$dcountry = $new_country;
+			$d = $new_country;
 		} else {
 			if(defined($default_country) && ($default_country =~ /United States/i)) {
 				# There may be a state in there somewhere
-				$dcountry = $person->get_value('death place');
-				if($dcountry =~ /,\s*([A-Z]{2})/) {
-					$dcountry = 'United States';
+				$d = $person->get_value('death place');
+				if($d =~ /,\s*([A-Z]{2})/) {
+					$d = 'United States';
 					$dcsp = us_state($1);
 				}
 			}
-			unless($dcountry) {
+			unless($d) {
 				print $person->name() . ": unknown country $dcountry\n";
-				$dcountry = undef;
 			}
 		}
+		$dcountry = $d;
 		$dcsp = $csp;
 	}
 
