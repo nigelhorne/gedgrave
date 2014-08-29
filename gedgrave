@@ -242,7 +242,8 @@ foreach my $person($ged->individuals()) {
 	}
 
 	if(defined($dcountry)) {
-		my $d =~ s/\s+$//;
+		my $d = $dcountry;
+		$d =~ s/\s+$//;
 		if($d =~ /(.+?)\./) {
 			unless($1 eq 'Co') {
 				$d = $1;
@@ -250,6 +251,7 @@ foreach my $person($ged->individuals()) {
 		}
 		$d =~ s/\)//g;
 		$d =~ s/[;.].*//;
+		$d =~ s/^\W+//;	# Remove leading other characters
 		my ($new_country, $csp) = check_country({
 			csp => $dcsp,
 			country => $d,
@@ -267,7 +269,7 @@ foreach my $person($ged->individuals()) {
 				}
 			}
 			unless($d) {
-				print $person->name() . ": unknown country $dcountry\n";
+				print $person->name() . ": unknown country '$dcountry'\n";
 			}
 		}
 		$dcountry = $d;
@@ -1632,7 +1634,7 @@ sub freereg {
 	my $str = stringify($params);
 	my $m = $$params{mech};
 
-	unless(defined($dcountry) && ($dcountry =~ /England|Scotland|Wales|Northern Ireland|United kingdom/i)) {
+	unless(defined($dcountry) && ($dcountry =~ /England|Scotland|Wales|Northern Ireland|United kingdom|Eng/i)) {
 		return;
 	}
 	unless($dcsp) {
@@ -1644,8 +1646,14 @@ sub freereg {
 		# HTTP::Response object
 		$r = $m->get('http://www.freereg.org.uk/cgi/Search.pl');
 		unless($r->is_success) {
-			warn 'freereg: ' . $r->status_line . "\n";
-			return;
+			if($r->status_line =~ /403 Forbidden/) {
+				sleep 1;
+				$r = $m->get('http://www.freereg.org.uk/cgi/Search.pl');
+			}
+			unless($r->is_success) {
+				warn "freereg (http://www.freereg.org.uk/cgi/Search.pl): " . stringify($params) . ': ' . $r->status_line . "\n";
+				return;
+			}
 		}
 	}
 
@@ -1780,6 +1788,7 @@ sub freereg {
 					# to not investigate further.
 					print "Place of death: $1: ";
 				}
+				print "Date of burial: $burial_year ";
 			} else {
 				die "freereg ($url): $str: parsing error - update the driver\n";
 			}
