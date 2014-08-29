@@ -740,7 +740,7 @@ sub billiongraves {
 	if($dcountry) {
 		my $d = $dcountry;
 		$d =~ s/\s/+/g;
-		if($d =~ /England|Scotland|Wales|Northern Ireland|United kingdom/i) {
+		if($d =~ /England|Scotland|Wales|Northern Ireland|United kingdom|Eng/i) {
 			$d = 'United+Kingdom';
 		}
 		$url .= "&country=$d";
