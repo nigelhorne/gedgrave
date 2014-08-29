@@ -192,6 +192,9 @@ foreach my $person($ged->individuals()) {
 		}
 	}
 
+	$firstname =~ s/^\s*//;
+	$lastname =~ s/\s*$//;
+
 	my $dob;
 	eval {
 		$dob = $person->get_value('birth date');
@@ -229,6 +232,9 @@ foreach my $person($ged->individuals()) {
 
 	# Parse the death location, trying to extract as much information as
 	# possible
+	if($dcountry) {
+		$dcountry =~ s/,\s+,/,/g;
+	}
 	if($dcountry && ($dcountry =~ /(.*[,-])\s*(.+)/)) {
 		$dcsp = $1;
 		$dcountry = $2;
@@ -290,7 +296,11 @@ foreach my $person($ged->individuals()) {
 	if((!defined($dcountry)) && defined($default_country)) {
 		$default_country = lc($default_country);
 		$dcountry = ucfirst($default_country);
-		if((!defined($dcsp)) && defined($default_subcountry)) {
+		if(defined($dcsp)) {
+			$dcsp =~ s/^\s*//;
+			$dcsp =~ s/\s*$//;
+		}
+		if(((!defined($dcsp)) || ($dcsp eq '')) && defined($default_subcountry)) {
 			$default_subcountry = lc($default_subcountry);
 			$dcsp = ucfirst($default_subcountry);
 		}
@@ -1687,6 +1697,7 @@ sub freereg {
 		return;
 	}
 	if($r->content =~ /Error/) {
+		# print $r->content;
 		die "freereg: $str: parsing error - update the driver\n";
 	}
 	if($r->content =~ /0 matches were found for this query/) {
@@ -1701,7 +1712,7 @@ sub freereg {
 
 	if(scalar($e->links) == 0) {
 		# No links seems unlikely, there must be something wrong
-		die "freereg: $str: parsing error - update the driver\n";
+		die "freereg: $str: parsing error - update the driver (no links found)\n";
 	}
 
 	state $ua ||= LWP::UserAgent->new(
@@ -2005,7 +2016,7 @@ sub check_country {
 	   ($country eq 'Northumberland') ||
 	   ($country eq 'Leicestershire') ||
 	   ($country eq 'Cambridgeshire') ||
-	   ($country eq 'Northamptonshire') ||
+	   ($country =~ /^Northampton/) ||
 	   ($country =~ /Isle of Wight/i) ||
 	   ($country eq 'Nottinghamshire') ||
 	   ($country eq 'Merseyside') ||
@@ -2026,6 +2037,15 @@ sub check_country {
 	}
 
 	my $csp = $$args{csp};
+
+	if(defined($csp)) {
+		$csp =~ s/^\s*//;
+		$csp =~ s/\s*$//;
+		if($csp eq '') {
+			$csp = undef;
+		}
+	}
+
 	$csp ||= $country;
 
 	if(($csp eq 'Tasmania') ||
