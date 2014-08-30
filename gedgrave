@@ -85,19 +85,20 @@ use File::Spec;
 
 my %opts;
 
-getopts('c:n:s:dv', \%opts);
+getopts('c:dn:s:mv', \%opts);
 
-if($opts{d}) {	# list dependencies
+if($opts{m}) {	# list module dependencies
 	print "List of dependencies you need to install from CPAN:\n";
 	print join("\n", map { s|/|::|g; s|\.pm$||; $_ } keys %INC);
 	print "\n";
 	exit;
 }
-die "Usage: gedgrave [ -c default-country-of-death ] [ -d ] [ -n lastname ] [ -s default-subcountry-of-death ] [ -v ] filename\n" unless($ARGV[0]);
+die "Usage: gedgrave [ -c default-country-of-death ] [ -d ] [ -m ] [ -n lastname ] [ -s default-subcountry-of-death ] [ -v ] filename\n" unless($ARGV[0]);
 
 my $default_country = $opts{c};
 my $default_subcountry = $opts{s};
 my $verbose = $opts{v};
+my $debug = $opts{d};
 my $surname_to_match;
 
 if($opts{n}) {
@@ -192,9 +193,6 @@ foreach my $person($ged->individuals()) {
 		}
 	}
 
-	$firstname =~ s/^\s*//;
-	$lastname =~ s/\s*$//;
-
 	my $dob;
 	eval {
 		$dob = $person->get_value('birth date');
@@ -228,18 +226,21 @@ foreach my $person($ged->individuals()) {
 	}
 
 	my $dcountry = $person->get_value('death place');
-	my $dcsp;
 
 	# Parse the death location, trying to extract as much information as
 	# possible
 	if($dcountry) {
+		$dcountry =~ s/[\s,]*$//;
 		$dcountry =~ s/,\s+,/,/g;
+		$dcountry =~ s/^[\s,]*//;
 	}
+	my $dcsp;
 	if($dcountry && ($dcountry =~ /(.*[,-])\s*(.+)/)) {
 		$dcsp = $1;
 		$dcountry = $2;
 		if($dcsp && ($dcsp =~ /.*[,-]\s*(.+)/)) {
 			$dcsp = $1;
+			$dcsp =~ s/^\s*//;
 		}
 	}
 
@@ -250,19 +251,37 @@ foreach my $person($ged->individuals()) {
 	if(defined($dcountry)) {
 		my $d = $dcountry;
 		$d =~ s/\s+$//;
-		if($d =~ /(.+?)\./) {
+		if($d =~ /(.+?)\.\s/) {
 			unless($1 eq 'Co') {
 				$d = $1;
 			}
 		}
 		$d =~ s/\)//g;
-		$d =~ s/[;.].*//;
+		$d =~ s/[;\.]\s*/ /;
 		$d =~ s/^\W+//;	# Remove leading other characters
+		if($debug) {
+			print "$firstname $lastname: ";
+			print $person->get_value('death place'), '; ';
+			if($dcsp) {
+				print "csp=>$dcsp, country => '$d' ";
+			} else {
+				print "country => '$d' ";
+			}
+		}
 		my ($new_country, $csp) = check_country({
 			csp => $dcsp,
 			country => $d,
 			default_country => $default_country,
 		});
+		if($debug) {
+			if($csp) {
+				print "after csp=>$csp, country => $new_country\n";
+			} elsif($new_country) {
+				print "after country => $new_country\n";
+			} else {
+				print "after country => <<undef>>\n";
+			}
+		}
 		if(defined($new_country)) {
 			$d = $new_country;
 		} else {
@@ -275,7 +294,8 @@ foreach my $person($ged->individuals()) {
 				}
 			}
 			unless($d) {
-				print $person->name() . ": unknown country '$dcountry'\n";
+				print colored($person->name() . ": unknown country $dcountry", 'yellow'), "\n";
+				$d = undef;
 			}
 		}
 		$dcountry = $d;
@@ -290,17 +310,17 @@ foreach my $person($ged->individuals()) {
 		my $d = $person->get_value('death place');
 		if($d =~ /[\s\w,\.]*,\s?(.+),\s*\Q$dcountry\E/i) {
 			$dcsp = $1;
+			$dcsp =~ s/^\s*//;
+			if($dcsp eq '') {
+				$dcsp = undef;
+			}
 		}
 	}
 
 	if((!defined($dcountry)) && defined($default_country)) {
 		$default_country = lc($default_country);
 		$dcountry = ucfirst($default_country);
-		if(defined($dcsp)) {
-			$dcsp =~ s/^\s*//;
-			$dcsp =~ s/\s*$//;
-		}
-		if(((!defined($dcsp)) || ($dcsp eq '')) && defined($default_subcountry)) {
+		if((!defined($dcsp)) && defined($default_subcountry)) {
 			$default_subcountry = lc($default_subcountry);
 			$dcsp = ucfirst($default_subcountry);
 		}
@@ -459,7 +479,13 @@ foreach my $person($ged->individuals()) {
 		# }
 
 			# prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
-			prun(@plist) || warn colored("$str: " . Parallel::Simple::errplus(), 'red');
+			unless(prun(@plist)) {
+				if($debug) {
+					die colored("$str: " . Parallel::Simple::errplus(), 'red');
+				} else {
+					warn colored("$str: " . Parallel::Simple::errplus(), 'red');
+				}
+			}
 		# sleep(2);
 	} else {
 		# Parallel::Simple fails on Windows with
@@ -945,6 +971,7 @@ sub americanheadstones {
 	}
 	unless($r->is_success) {
 		warn "$url: " . $r->status_line . "\n";
+		$cache->set($str, 0);
 		return;
 	}
 
@@ -1656,14 +1683,8 @@ sub freereg {
 		# HTTP::Response object
 		$r = $m->get('http://www.freereg.org.uk/cgi/Search.pl');
 		unless($r->is_success) {
-			if($r->status_line =~ /403 Forbidden/) {
-				sleep 1;
-				$r = $m->get('http://www.freereg.org.uk/cgi/Search.pl');
-			}
-			unless($r->is_success) {
-				warn "freereg (http://www.freereg.org.uk/cgi/Search.pl): " . stringify($params) . ': ' . $r->status_line . "\n";
-				return;
-			}
+			warn 'freereg: ' . $r->status_line . "\n";
+			return;
 		}
 	}
 
@@ -1697,7 +1718,6 @@ sub freereg {
 		return;
 	}
 	if($r->content =~ /Error/) {
-		# print $r->content;
 		die "freereg: $str: parsing error - update the driver\n";
 	}
 	if($r->content =~ /0 matches were found for this query/) {
@@ -1712,7 +1732,7 @@ sub freereg {
 
 	if(scalar($e->links) == 0) {
 		# No links seems unlikely, there must be something wrong
-		die "freereg: $str: parsing error - update the driver (no links found)\n";
+		die "freereg: $str: parsing error - update the driver\n";
 	}
 
 	state $ua ||= LWP::UserAgent->new(
@@ -1979,14 +1999,29 @@ sub check_country {
 
 	my $country = $$args{country};
 
+	if($country =~ /\d/) {
+		print colored('Found a country with a digit in it', 'yellow'), "\n";
+		return undef, undef;
+	}
+	my $csp = $$args{csp};
+
+	if((!defined($country)) && defined($csp)) {
+		$country = $csp;
+		$csp = undef;
+	}
+
+	if(defined($csp) && ($csp eq 'Northampton')) {
+		return 'England', 'Northamptonshire';
+	}
+
 	if($country eq 'UK') {
-		return 'England', undef;
+		return 'England', $csp;
 	}
 
 	if(($country =~ /England/) ||
 	   ($country eq 'Wales') ||
 	   ($country eq 'Scotland')) {
-		return $country, undef;
+		return $country, $csp;
 	}
 
 	if(($country eq 'Kent') ||
@@ -2016,7 +2051,7 @@ sub check_country {
 	   ($country eq 'Northumberland') ||
 	   ($country eq 'Leicestershire') ||
 	   ($country eq 'Cambridgeshire') ||
-	   ($country =~ /^Northampton/) ||
+	   ($country eq 'Northamptonshire') ||
 	   ($country =~ /Isle of Wight/i) ||
 	   ($country eq 'Nottinghamshire') ||
 	   ($country eq 'Merseyside') ||
@@ -2036,17 +2071,11 @@ sub check_country {
 		return 'New Zealand', undef;
 	}
 
-	my $csp = $$args{csp};
-
-	if(defined($csp)) {
-		$csp =~ s/^\s*//;
-		$csp =~ s/\s*$//;
-		if($csp eq '') {
-			$csp = undef;
-		}
-	}
-
 	$csp ||= $country;
+
+	if($csp eq 'Northampton') {
+		return 'England', 'Northamptonshire';
+	}
 
 	if(($csp eq 'Tasmania') ||
 	   ($csp eq 'South Australia') ||
@@ -2057,10 +2086,6 @@ sub check_country {
 
 	if($country =~ /France/) {
 		return 'France', undef;
-	}
-
-	if($csp eq 'Northampton') {
-		return 'England', 'Northamptonshire';
 	}
 
 	my $s = us_state($csp);
@@ -2083,24 +2108,32 @@ sub check_country {
 			}
 		}
 	}
+	$s = us_state($country);
+	if($s) {
+		return 'United States', $s;
+	}
 	if(($country =~ /USA$/) ||
 	   ($country eq 'America')) {
 		return 'United States', undef;
 	}
 
-	my $canada = Locale::SubCountry->new('CA');
-
-	if($canada->code($csp) ne 'unknown') {
-		return 'Canada', $canada->code($csp);
+	$s = ca_province($csp);
+	if($s) {
+		return 'Canada', $s;
 	}
-	if($canada->full_name(uc($csp)) ne 'unknown') {
-		return 'Canada', uc($csp);
+	$s = ca_province($country);
+	if($s) {
+		return 'Canada', $s;
 	}
 
+	if(($csp eq 'Austria') && ($country eq 'Hungary')) {
+		print colored('Austria-Hungary has a dash not a comma', 'yellow'), "\n";
+		return 'Austria-Hungary', undef;
+	}
 	local $SIG{__WARN__} = sub { die $_[0] };
 
 	eval {
-		my $country = Locale::Object::Country->new(name => $country);
+		Locale::Object::Country->new(name => $country);
 	};
 	if($@) {
 		return;
@@ -2108,17 +2141,31 @@ sub check_country {
 	return $country, $csp;
 }
 
-# Returns the full name of the given US state
+# Returns the abbreviation of the given US state
 sub us_state {
-	my $csp = shift;
+	my $csp = uc(shift);
 
 	my $us = Locale::US->new();
-	if(exists($us->{code2state}{uc($csp)})) {
+	if(exists($us->{code2state}{$csp})) {
 		# Two letter postal abbreviation
-		return $us->{code2state}{uc($csp)};
-	}
-	if(exists($us->{state2code}{uc($csp)})) {
+		# return $us->{code2state}{$csp};
 		return $csp;
+	}
+	if(exists($us->{state2code}{$csp})) {
+		return $us->{state2code}{$csp};
+	}
+}
+
+# Returns the abbreviation of the given Canadian province
+sub ca_province {
+	my $csp = uc(shift);
+
+	my $ca = Locale::CA->new();
+	if(exists($ca->{code2province}{$csp})) {
+		return $csp;
+	}
+	if(exists($ca->{province2code}{$csp})) {
+		return $ca->{province2code}{$csp};
 	}
 }
 
