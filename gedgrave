@@ -2059,6 +2059,10 @@ sub check_country {
 		return 'France', undef;
 	}
 
+	if($csp eq 'Northampton') {
+		return 'England', 'Northamptonshire';
+	}
+
 	my $s = us_state($csp);
 	if($s) {
 		return 'United States', $s;
