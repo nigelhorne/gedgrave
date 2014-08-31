@@ -101,6 +101,10 @@ my $verbose = $opts{v};
 my $debug = $opts{d};
 my $surname_to_match;
 
+if($debug) {
+	$verbose++;
+}
+
 if($opts{n}) {
 	$surname_to_match = lc($opts{n});
 }
@@ -227,6 +231,13 @@ foreach my $person($ged->individuals()) {
 
 	my $dcountry = $person->get_value('death place');
 
+	unless($dcountry) {
+		# Assume that the person died in the same country that
+		# they were born in.  Not that many people emigrate who
+		# don't have recorded information
+		$dcountry = $person->get_value('birth place');
+		print colored($person->name() . ': unknown place of death trying place of birth', 'yellow'), "\n" if($debug);
+	}
 	# Parse the death location, trying to extract as much information as
 	# possible
 	if($dcountry) {
@@ -307,7 +318,7 @@ foreach my $person($ged->individuals()) {
 	}
 	# If all else fails, try to extract the CSP as the next to last field in the death place
 	if((!defined($dcsp)) && defined($dcountry)) {
-		my $d = $person->get_value('death place');
+		my $d = $person->get_value('death place') || $person->get_value('birth place');
 		if($d =~ /[\s\w,\.]*,\s?(.+),\s*\Q$dcountry\E/i) {
 			$dcsp = $1;
 			$dcsp =~ s/^\s*//;
@@ -484,6 +495,10 @@ foreach my $person($ged->individuals()) {
 					die colored("$str: " . Parallel::Simple::errplus(), 'red');
 				} else {
 					warn colored("$str: " . Parallel::Simple::errplus(), 'red');
+					if(Parallel::Simple::rv->{findagrave}) {
+						print "Resetting Find a Grave\n" if($verbose);
+						$fmech = WWW::Mechanize::Cached::GZip->new();
+					}
 				}
 			}
 		# sleep(2);
@@ -611,8 +626,7 @@ sub findagrave {
 		# HTTP::Response object
 		$r = $m->get('http://www.findagrave.com/cgi-bin/fg.cgi');
 		unless($r->is_success) {
-			warn 'findagrave: ' . $r->status_line . "\n";
-			return;
+			die 'findagrave: ' . stringify($params) . ': ' . $r->status_line;
 		}
 	}
 
@@ -660,8 +674,7 @@ sub findagrave {
 		fields => \%fields,
 	);
 	unless($r->is_success) {
-		warn 'findagrave: ' . stringify($params) . ': ' . $r->status_line . "\n";
-		return;
+		die 'findagrave: ' . stringify($params) . ': ' . $r->status_line;
 	}
 	if($r->content =~ /Sorry, there are no records in the Find A Grave database matching your query\./) {
 		$cache->set($str, 0);
@@ -809,7 +822,6 @@ sub billiongraves {
 
 	unless($r->is_success) {
 		warn "billiongraves: $str ($url): " . $r->status_line . "\n";
-		$cache->set($str, 0);
 		return;
 	}
 
@@ -971,7 +983,6 @@ sub americanheadstones {
 	}
 	unless($r->is_success) {
 		warn "$url: " . $r->status_line . "\n";
-		$cache->set($str, 0);
 		return;
 	}
 
@@ -1341,7 +1352,6 @@ sub teafor2 {
 		# HTTP::Response object
 		unless($r->is_success) {
 			warn "teafor2: " . $r->status_line . "\n";
-			$cache->set($str, 0);
 			return;
 		}
 
@@ -1755,7 +1765,7 @@ sub freereg {
 		if($dob || $dod) {
 			my $r = $ua->get($url);
 			unless($r->is_success) {
-				warn "freereg ($url): " . stringify($params) . ': ' . $r->status_line . "\n";
+				warn colored("freereg ($url): " . stringify($params) . ': ' . $r->status_line, 'red');
 				if($r->status_line eq '500 read timeout') {
 					# TODO: clear WWW::Mechanize cache and try again
 					next;
@@ -1781,7 +1791,7 @@ sub freereg {
 						# Estimate date of birth to reduce false positives
 						$dob = $dod - $age;
 					} elsif($dob) {
-						print "freereg: $dob; $age; $burial_year\n" if($verbose);
+						# print "freereg: $dob; $age; $burial_year\n" if($verbose);
 						if((($dob + $age) > ($burial_year + 2))) {
 							next;
 						}
@@ -2010,8 +2020,13 @@ sub check_country {
 		$csp = undef;
 	}
 
-	if(defined($csp) && ($csp eq 'Northampton')) {
-		return 'England', 'Northamptonshire';
+	if(defined($csp)) {
+		if($csp eq 'Northampton') {
+			return 'England', 'Northamptonshire';
+		}
+		if($csp =~ /^Newcastle Upon/i) {
+			return 'England', undef;
+		}
 	}
 
 	if($country eq 'UK') {
@@ -2141,23 +2156,50 @@ sub check_country {
 	return $country, $csp;
 }
 
-# Returns the abbreviation of the given US state
+# Returns the full name of the given US state
 sub us_state {
+	my $csp = shift;
+
+	my $us = Locale::US->new();
+	if(exists($us->{code2state}{uc($csp)})) {
+		# Two letter postal abbreviation
+		return $us->{code2state}{uc($csp)};
+	}
+	if(exists($us->{state2code}{uc($csp)})) {
+		return $csp;
+	}
+}
+
+# Returns the full name of the given Canadian province
+sub ca_province {
+	my $csp = shift;
+
+	my $ca = Locale::US->new();
+	if(exists($ca->{code2province}{uc($csp)})) {
+		# Two letter postal abbreviation
+		return $ca->{code2province}{uc($csp)};
+	}
+	if(exists($ca->{province2code}{uc($csp)})) {
+		return $csp;
+	}
+}
+
+# Returns the 2 letter postal code of the given US state
+sub us_2letter {
 	my $csp = uc(shift);
 
 	my $us = Locale::US->new();
 	if(exists($us->{code2state}{$csp})) {
-		# Two letter postal abbreviation
-		# return $us->{code2state}{$csp};
 		return $csp;
 	}
 	if(exists($us->{state2code}{$csp})) {
+		# Two letter postal abbreviation
 		return $us->{state2code}{$csp};
 	}
 }
 
-# Returns the abbreviation of the given Canadian province
-sub ca_province {
+# Returns the 2 letter postal code of the given Canadian province
+sub ca_2letter {
 	my $csp = uc(shift);
 
 	my $ca = Locale::CA->new();
@@ -2165,34 +2207,7 @@ sub ca_province {
 		return $csp;
 	}
 	if(exists($ca->{province2code}{$csp})) {
+		# Two letter postal abbreviation
 		return $ca->{province2code}{$csp};
-	}
-}
-
-# Returns the 2 letter postal code of the given US state
-sub us_2letter {
-	my $csp = shift;
-
-	my $us = Locale::US->new();
-	if(exists($us->{code2state}{uc($csp)})) {
-		return $csp;
-	}
-	if(exists($us->{state2code}{uc($csp)})) {
-		# Two letter postal abbreviation
-		return $us->{state2code}{uc($csp)};
-	}
-}
-
-# Returns the 2 letter postal code of the given Canadian province
-sub ca_2letter {
-	my $csp = shift;
-
-	my $ca = Locale::CA->new();
-	if(exists($ca->{code2province}{uc($csp)})) {
-		return $csp;
-	}
-	if(exists($ca->{province2code}{uc($csp)})) {
-		# Two letter postal abbreviation
-		return $ca->{province2code}{uc($csp)};
 	}
 }
