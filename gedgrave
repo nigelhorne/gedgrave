@@ -85,7 +85,7 @@ use File::Spec;
 
 my %opts;
 
-getopts('c:dn:s:mv', \%opts);
+getopts('c:dn:s:mvx', \%opts);
 
 if($opts{m}) {	# list module dependencies
 	print "List of dependencies you need to install from CPAN:\n";
@@ -93,12 +93,13 @@ if($opts{m}) {	# list module dependencies
 	print "\n";
 	exit;
 }
-die "Usage: gedgrave [ -c default-country-of-death ] [ -d ] [ -m ] [ -n lastname ] [ -s default-subcountry-of-death ] [ -v ] filename\n" unless($ARGV[0]);
+die "Usage: gedgrave [ -c default-country-of-death ] [ -d ] [ -m ] [ -n lastname ] [ -s default-subcountry-of-death ] [ -v ] [ -x ] filename\n" unless($ARGV[0]);
 
 my $default_country = $opts{c};
 my $default_subcountry = $opts{s};
 my $verbose = $opts{v};
 my $debug = $opts{d};
+my $excel = $opts{x};
 my $surname_to_match;
 
 if($debug) {
@@ -219,7 +220,7 @@ foreach my $person($ged->individuals()) {
 	if($dob && ($dob =~ /.*?(\d{3,4})/)) {
 		$dob = $1;
 	} elsif($dob) {
-		print $person->name() . ": invalid date of birth $dob\n";
+		print colored($person->name() . ": invalid date of birth $dob", 'yellow'), "\n";
 		$dob = undef;
 	}
 
@@ -686,11 +687,13 @@ sub findagrave {
 		$cache->set($str, $matches);
 		return if($matches == 0);
 
-		print "$str: checking $matches possible match";
-		if($matches > 1) {
-			print 'es';
+		unless($excel) {
+			print "$str: checking $matches possible match";
+			if($matches > 1) {
+				print 'es';
+			}
+			print " on findagrave\n";
 		}
-		print " on findagrave\n";
 	} else {
 		# This seems to happen quite often, so it's a warning not
 		# a die. I think it's a problem with findagrave.
@@ -738,7 +741,11 @@ sub findagrave {
 				}
 			}
 			if($match) {
-				print colored($link, 'green'), "\n";
+				if($excel) {
+					print "$str,\"$link\"\n";
+				} else {
+					print colored($link, 'green'), "\n";
+				}
 				$count++;
 			}
 		}
@@ -878,12 +885,14 @@ sub canadianheadstones {
 		if(defined($firstname)) {
 			$url .= "&cfield2=first&ctype2=ctns&ctxt2=$firstname";
 		}
-		print "canadianheadstones = checking $url\n";
+		unless($excel) {
+			print "canadianheadstones = checking $url\n";
+		}
 		$r = $m->get($url);
 		unless($r->is_success) {
 			# Happens when looking for a province that isn't
 			# correct, often from the default_subscountry setting
-			warn "$url: $str: " . $r->status_line . "\n";
+			warn colored("$str: $url: " . $r->status_line, 'red');
 			return;
 		}
 
@@ -895,7 +904,9 @@ sub canadianheadstones {
 		}
 	}
 
-	print "$str: found some possible matches on canadianheadstones\n";
+	unless($excel) {
+		print "$str: found some possible matches on canadianheadstones\n";
+	}
 
 	my $e = HTML::SimpleLinkExtor->new();
 	$e->remove_tags('img', 'script');
@@ -926,7 +937,11 @@ sub canadianheadstones {
 				my $t = $r->title();
 				# print "\tChecking $t\n";
 				if(defined($t) && ($t =~ /\Q$uname\E[\s,]/i)) {
-					print "\t$link\n";
+					if($excel) {
+						print "$str,\"$link\"\n";
+					} else {
+						print "\t$link\n";
+					}
 					$count++;
 				}
 			}
@@ -1407,7 +1422,7 @@ sub virtualcemetery {
 		# HTTP::Response object
 		$r = $m->get('http://www.genealogy.com/VG/vcem_search.html');
 		unless($r->is_success) {
-			warn 'virtualcemetery: ' . $r->status_line . "\n";
+			warn colored('virtualcemetery: ' . $r->status_line, 'red');
 			return;
 		}
 		if($r->content =~ /To better assist your research we will redirect you/) {
@@ -1460,7 +1475,7 @@ sub virtualcemetery {
 		fields => \%fields,
 	);
 	unless($r->is_success) {
-		warn "virtualcemetery: $str:" . $r->status_line . "\n";
+		warn colored('virtualcemetery: ' . $r->status_line, 'red');
 		return;
 	}
 	if($r->content =~ /No matches/) {
@@ -1468,7 +1483,9 @@ sub virtualcemetery {
 		return;
 	}
 
-	print "$str: found some possible matches on virtual cemetery\n";
+	unless($excel) {
+		print "$str: found some possible matches on virtual cemetery\n";
+	}
 
 	my $e = HTML::SimpleLinkExtor->new();
 	$e->remove_tags('img', 'script');
@@ -1520,7 +1537,9 @@ sub virtualcemetery {
 				}
 			}
 			if($match) {
-				if($^O eq 'MSWin32') {
+				if($excel) {
+					print "$str,$link\n";
+				} elsif($^O eq 'MSWin32') {
 					print "\t$link\n";
 				} else {
 					print colored($link, 'green'), "\n";
@@ -1693,7 +1712,7 @@ sub freereg {
 		# HTTP::Response object
 		$r = $m->get('http://www.freereg.org.uk/cgi/Search.pl');
 		unless($r->is_success) {
-			warn 'freereg: ' . $r->status_line . "\n";
+			warn colored('freereg: ' . $r->status_line . "\n", 'red');
 			return;
 		}
 	}
@@ -1734,7 +1753,9 @@ sub freereg {
 		$cache->set($str, 0);
 		return;
 	}
-	print "$str: checking possible match in FreeREG\n";
+	unless($excel) {
+		print "$str: checking possible match in FreeREG\n";
+	}
 
 	my $e = HTML::SimpleLinkExtor->new();
 	$e->remove_tags('img', 'script');
@@ -1755,6 +1776,8 @@ sub freereg {
 	$ua->env_proxy(1);
 
 	my $count = 0;
+	my $comment = '';
+	my $print_string = $str;
 	foreach my $link ($e->links) {
 		unless($link =~ /SearchResults\.pl/) {
 			next;
@@ -1827,15 +1850,23 @@ sub freereg {
 					# is based by county and we can
 					# use the place to decide which URLs
 					# to not investigate further.
-					print "Place of death: $1: ";
+					$comment = "Place of death: $1: ";
 				}
-				print "Date of burial: $burial_year ";
+				$comment .= "Date of burial: $burial_year ";
+				unless($excel) {
+					print $comment;
+				}
 			} else {
 				die "freereg ($url): $str: parsing error - update the driver\n";
 			}
 		}
 
-		print colored($url, 'green'), "\n";
+		if($excel) {
+			print "$print_string,$url,$comment\n";
+			$print_string = '""';
+		} else {
+			print colored($url, 'green'), "\n";
+		}
 		$count++;
 	}
 	$cache->set($str, $count);
@@ -1996,7 +2027,12 @@ sub stringify {
 	$rc .= '-';
 
 	if($dod) {
-		$rc .= "$dod";
+		$rc .= $dod;
+	}
+
+	if($excel) {
+		$rc =~ s/"/\\"/g;
+		return "\"$rc\"";
 	}
 
 	return $rc;
