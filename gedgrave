@@ -68,7 +68,6 @@ use WWW::Mechanize::Cached::GZip;
 use HTML::SimpleLinkExtor;
 # use XML::LibXML;
 use LWP;
-# use HTTP::Cache::Transparent;
 use CHI;
 use Locale::Object::Country;
 use Locale::US;
@@ -101,6 +100,7 @@ my $verbose = $opts{v};
 my $debug = $opts{d};
 my $excel = $opts{x};
 my $surname_to_match;
+my $parallel = ($^O eq 'MSWin32') ? 0 : 1;
 
 if($debug) {
 	$verbose++;
@@ -111,21 +111,25 @@ if($opts{n}) {
 }
 
 my $ged = Gedcom->new(gedcom_file => $ARGV[0], read_only => 1);
+my $cachedir = File::Spec->catfile(File::Spec->tmpdir(), 'cache');
 
 # Not when running in Parallel - you get HTML::Form errors
 # becuse HTTP::Cache::Transparent is not thread safe.
-# HTTP::Cache::Transparent::init( {
-	# BasePath => $cachedir . '/http-cache-transparent',
-	# # Verbose => 1,
-	# NoUpdate => 60 * 60,
-	# MaxAge => 15 * 24} ) || die "gedgrave/cache: $!";
+unless($parallel) {
+	require HTTP::Cache::Transparent;
+	HTTP::Cache::Transparent->import();
+
+	HTTP::Cache::Transparent::init( {
+	BasePath => $cachedir . '/http-cache-transparent',
+	# Verbose => 1,
+	NoUpdate => 60 * 60,
+	MaxAge => 15 * 24} ) || die "gedgrave/cache: $!";
+}
 
 # Gedcoms exported by ancestry.co.uk fail this...
 # die "Invalid gedcom file $ARGV[0]\n" unless($ged->validate());
 
 memoize('check_country');
-
-my $cachedir = File::Spec->catfile(File::Spec->tmpdir(), 'cache');
 
 # Set of caches for each driver
 my $tcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'tombfinder', expires_in => '1 day');
@@ -390,7 +394,7 @@ foreach my $person($ged->individuals()) {
 	my @plist = ();
 
 	# Submit this person to each driver - one driver per site
-	unless($^O eq 'MSWin32') {
+	if($parallel) {
 		if((!defined($dcountry)) || ($dcountry eq 'United States')) {
 			$entry = $tcache->get($str);
 			if((!defined($entry)) || ($entry > 0)) {
@@ -1109,11 +1113,13 @@ sub tombfinder {
 		$cache->set($str, $1);
 		return if($1 == 0);
 
-		print "$str: checking $1 possible match";
-		if($1 > 1) {
-			print 'es';
+		unless($excel) {
+			print "$str: checking $1 possible match";
+			if($1 > 1) {
+				print 'es';
+			}
+			print " on tombfinder\n";
 		}
-		print " on tombfinder\n";
 	} else {
 		$cache->set($str, 0);
 		return;
@@ -1148,7 +1154,11 @@ sub tombfinder {
 					} elsif($dob && ($t !~ /\Q$dob\E/)) {
 						next;
 					}
-					print colored($link, 'green'), "\n";
+					if($excel) {
+						print "$str,$link\n";
+					} else {
+						print colored($link, 'green'), "\n";
+					}
 					$count++;
 				}
 			}
