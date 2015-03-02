@@ -113,10 +113,16 @@ if($opts{n}) {
 
 my $ged = Gedcom->new(gedcom_file => $ARGV[0], read_only => 1);
 my $cachedir = File::Spec->catfile(File::Spec->tmpdir(), 'cache');
+my $lwpcache;
 
 # Not when running in Parallel - you get HTML::Form errors
-# becuse HTTP::Cache::Transparent is not thread safe.
-unless($parallel) {
+# because HTTP::Cache::Transparent is not thread safe.
+if($parallel) {
+	require LWPx::UserAgent::Cached;
+	LWPx::UserAgent::Cached->import();
+
+	$lwpcache = CHI->new(driver => 'File', root_dir => $cachedir, expires_in => '1 month', namespace => 'LWPx::UserAgent::Cache');
+} else {
 	require HTTP::Cache::Transparent;
 	HTTP::Cache::Transparent->import();
 
@@ -713,12 +719,23 @@ sub findagrave {
 	# Shows 40 per page
 	my $base = $r->base();
 	my $index = 1;
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 10,
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	}
 
 	$ua->env_proxy(1);
 
@@ -821,12 +838,23 @@ sub billiongraves {
 
 	# print "Billiongraves, checking $url\n";
 
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 20,
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 20,
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 20,
+		);
+	}
 
 	$ua->env_proxy(1);
 
@@ -917,12 +945,23 @@ sub canadianheadstones {
 	$e->remove_tags('img', 'script');
 	$e->parse(Encode::decode_utf8($content));
 
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 10,
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	}
 
 	$ua->env_proxy(1);
 
@@ -1017,12 +1056,23 @@ sub americanheadstones {
 	$e->remove_tags('img', 'script');
 	$e->parse(Encode::decode_utf8($r->content));
 
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 10,
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	}
 
 	$ua->env_proxy(1);
 
@@ -1130,12 +1180,23 @@ sub tombfinder {
 	$e->remove_tags('img', 'script');
 	$e->parse($r->content);
 
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 10,
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	}
 
 	$ua->env_proxy(1);
 
@@ -1185,12 +1246,23 @@ sub gravestonephotos {
 
 	my $content = $cache2->get($lastname);
 
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 30,
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 30,
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 30,
+		);
+	}
 
 	$ua->env_proxy(1);
 
@@ -1364,12 +1436,23 @@ sub teafor2 {
 	my $lastname = $$params{lastname};
 	my $str = stringify($params);
 
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 30,
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 30,
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 30,
+		);
+	}
 
 	$ua->env_proxy(1);
 
@@ -1415,6 +1498,7 @@ sub teafor2 {
 }
 
 sub virtualcemetery {
+	return;
 	my $params = shift;
 
 	my $dob = $$params{dob};
@@ -1507,13 +1591,25 @@ sub virtualcemetery {
 		die "virtualcemetery: $str: parsing error - update the driver\n";
 	}
 
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 10,
-		cookie_jar => $$params{jar},
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+			cookie_jar => $$params{jar},
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+			cookie_jar => $$params{jar},
+		);
+	}
 
 	$ua->env_proxy(1);
 
@@ -1654,12 +1750,23 @@ sub cwgc {
 		die "cwgc: $str: parsing error - update the driver\n";
 	}
 
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 10,
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	}
 
 	$ua->env_proxy(1);
 
@@ -1777,12 +1884,23 @@ sub freereg {
 		die "freereg: $str: parsing error - update the driver\n";
 	}
 
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 10,
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+		);
+	}
 
 	$ua->env_proxy(1);
 
@@ -1936,13 +2054,25 @@ sub restingspot {
 		die "restingspots: $str: parsing error - update the driver\n";
 	}
 
-	state $ua ||= LWP::UserAgent->new(
-		keep_alive => 1,
-		agent => 'gedgrave',
-		from => 'njh@despammed.com',
-		timeout => 10,
-		cookie_jar => $$params{jar},
-	);
+	state $ua;
+	if($parallel) {
+		$ua ||= LWPx::UserAgent::Cached->new(
+			cache => $lwpcache,
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+			cookie_jar => $$params{jar},
+		);
+	} else {
+		$ua ||= LWP::UserAgent->new(
+			keep_alive => 1,
+			agent => 'gedgrave',
+			from => 'njh@despammed.com',
+			timeout => 10,
+			cookie_jar => $$params{jar},
+		);
+	}
 
 	$ua->env_proxy(1);
 
