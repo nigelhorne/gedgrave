@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 # Author Nigel Horne: njh@bandsman.co.uk
-# Copyright (C) 2012-2014, Nigel Horne
+# Copyright (C) 2012-2015, Nigel Horne
 
 # Usage is subject to licence terms.
 # The licence terms of this software are as follows:
@@ -65,10 +65,10 @@ use Parallel::Simple qw(prun);	# FIXME: Doesn't work on Windows
 use Getopt::Std;
 use Encode;
 use Gedcom;
-use WWW::Mechanize::Cached::GZip;
+use WWW::Mechanize::GZip;
 use HTML::SimpleLinkExtor;
 # use XML::LibXML;
-use LWP;
+# use LWP;
 use CHI;
 use Locale::Object::Country;
 use Locale::US;
@@ -85,7 +85,7 @@ use File::Spec;
 
 my %opts;
 
-getopts('c:dn:s:mvx', \%opts);
+getopts('c:dfn:s:mvx', \%opts);
 
 if($opts{m}) {	# list module dependencies
 	print "List of dependencies you need to install from CPAN:\n";
@@ -93,15 +93,17 @@ if($opts{m}) {	# list module dependencies
 	print "\n";
 	exit;
 }
-die "Usage: gedgrave [ -c default-country-of-death ] [ -d ] [ -m ] [ -n lastname ] [ -s default-subcountry-of-death ] [ -v ] [ -x ] filename\n" unless($ARGV[0]);
+die "Usage: gedgrave [ -c default-country-of-death ] [ -d ] [ -f ] [ -m ] [ -n lastname ] [ -s default-subcountry-of-death ] [ -v ] [ -x ] filename\n" unless($ARGV[0]);
 
 my $default_country = $opts{c};
 my $default_subcountry = $opts{s};
 my $verbose = $opts{v};
 my $debug = $opts{d};
 my $excel = $opts{x};
+my $freereg_only = $opts{f};
 my $surname_to_match;
 my $parallel = ($^O eq 'MSWin32') ? 0 : 1;
+$parallel = 0;
 
 if($debug) {
 	$verbose++;
@@ -154,15 +156,15 @@ my $ccache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'com
 my $freeregcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'freereg', expires_in => '1 day');
 # my $rcache = CHI->new(driver => 'File', root_dir => $cachedir, namespace => 'restingspot', expires_in => '1 day');
 
-# Set of WWW::Mechanize objects for each driver
-my $tmech = WWW::Mechanize::Cached::GZip->new();
-my $bmech = WWW::Mechanize::Cached::GZip->new();
-my $fmech = WWW::Mechanize::Cached::GZip->new();
-my $gmech = WWW::Mechanize::Cached::GZip->new();
-my $hmech = WWW::Mechanize::Cached::GZip->new();
-my $tf2mech = WWW::Mechanize::Cached::GZip->new();
-my $freeregmech = WWW::Mechanize::Cached::GZip->new();
-# my $rmech = WWW::Mechanize::Cached::GZip->new();
+# Set of WWW::Mechanize::GZip objects for each driver
+my $tmech = WWW::Mechanize::GZip->new();
+my $bmech = WWW::Mechanize::GZip->new();
+my $fmech = WWW::Mechanize::GZip->new();
+my $gmech = WWW::Mechanize::GZip->new();
+my $hmech = WWW::Mechanize::GZip->new();
+my $tf2mech = WWW::Mechanize::GZip->new();
+my $freeregmech = WWW::Mechanize::GZip->new();
+# my $rmech = WWW::Mechanize::GZip->new();
 
 # This is needed because if you're outside the US, genealogy.com unhelpfully
 # redirects you to ancestry :-(
@@ -178,8 +180,8 @@ $vjar->set_cookie(qw(
 	0
 	)
 );
-my $vmech = WWW::Mechanize::Cached::GZip->new(cookie_jar => $vjar);
-my $cmech = WWW::Mechanize::Cached::GZip->new();
+my $vmech = WWW::Mechanize::GZip->new(cookie_jar => $vjar);
+my $cmech = WWW::Mechanize::GZip->new();
 
 foreach my $person($ged->individuals()) {
 	# Gather the information on this person
@@ -398,10 +400,18 @@ foreach my $person($ged->individuals()) {
 	my $str = stringify(\%params);
 
 	my $entry;
-	my @plist = ();
 
-	# Submit this person to each driver - one driver per site
-	if($parallel) {
+	if($freereg_only) {
+		$entry = $freeregcache->get($str);
+		if((!defined($entry)) || ($entry > 0)) {
+			my $fparams = \%params;
+			$fparams->{cache} = $freeregcache;
+			$fparams->{mech} = $freeregmech;
+			freereg($fparams);
+		}
+	} elsif($parallel) {
+		# Submit this person to each driver - one driver per site
+		my @plist = ();
 		if((!defined($dcountry)) || ($dcountry eq 'United States')) {
 			$entry = $tcache->get($str);
 			if((!defined($entry)) || ($entry > 0)) {
@@ -501,18 +511,18 @@ foreach my $person($ged->individuals()) {
 			# push @plist, restingspot => [ \&restingspot, \%rparams ];
 		# }
 
-			# prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
-			unless(prun(@plist)) {
-				if($debug) {
-					die colored("$str: " . Parallel::Simple::errplus(), 'red');
-				} else {
-					warn colored("$str: " . Parallel::Simple::errplus(), 'red');
-					if(Parallel::Simple::rv->{findagrave}) {
-						print "Resetting Find a Grave\n" if($verbose);
-						$fmech = WWW::Mechanize::Cached::GZip->new();
-					}
+		# prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
+		unless(prun(@plist)) {
+			if($debug) {
+				die colored("$str: " . Parallel::Simple::errplus(), 'red');
+			} else {
+				warn colored("$str: " . Parallel::Simple::errplus(), 'red');
+				if(Parallel::Simple::rv->{findagrave}) {
+					print "Resetting Find a Grave\n" if($verbose);
+					$fmech = WWW::Mechanize::GZip->new();
 				}
 			}
+		}
 		# sleep(2);
 	} else {
 		# Parallel::Simple fails on Windows with
@@ -1865,7 +1875,12 @@ sub freereg {
 		return;
 	}
 	if($r->content =~ /Error/) {
-		die "freereg: $str: parsing error - update the driver\n";
+		if($r->content =~ /Unknown county/) {
+			warn colored("freereg: $str: Unknown county $dcsp", 'red');
+			$cache->set($str, 0);
+			return;
+		}
+		die "freereg: $str: parsing error, Error found in content - update the driver\n";
 	}
 	if($r->content =~ /0 matches were found for this query/) {
 		$cache->set($str, 0);
@@ -1881,7 +1896,7 @@ sub freereg {
 
 	if(scalar($e->links) == 0) {
 		# No links seems unlikely, there must be something wrong
-		die "freereg: $str: parsing error - update the driver\n";
+		die "freereg: $str: parsing error, no links found - update the driver\n";
 	}
 
 	state $ua;
@@ -1914,21 +1929,21 @@ sub freereg {
 
 		my $url = "http://www.freereg.org.uk/cgi/$link";
 
-		if($dob || $dod) {
-			my $r = $ua->get($url);
-			unless($r->is_success) {
-				warn colored("freereg ($url): " . stringify($params) . ': ' . $r->status_line, 'red');
-				if($r->status_line eq '500 read timeout') {
-					# TODO: clear WWW::Mechanize cache and try again
-					next;
-				}
-				return;
+		my $r = $ua->get($url);
+		unless($r->is_success) {
+			warn colored("freereg ($url): " . stringify($params) . ': ' . $r->status_line, 'red');
+			if($r->status_line eq '500 read timeout') {
+				# TODO: clear WWW::Mechanize::GZip cache and try again
+				next;
 			}
-			my $content = $r->content();
+			return;
+		}
+		my $content = $r->content();
 
+		if($dob || $dod) {
 			if($content =~ /Search session timed out/) {
 				# This is pretty annoying...
-				# TODO: clear WWW::Mechanize cache and try again
+				# TODO: clear WWW::Mechanize::GZip cache and try again
 				next;
 			}
 			if($content =~ /BurialDate<\/TD><TD>(.*?)<\/TD>/) {
@@ -1980,6 +1995,8 @@ sub freereg {
 					# use the place to decide which URLs
 					# to not investigate further.
 					$comment = "Place of death: $1: ";
+				} else {
+					print colored("$url: Couldn't extract the place of death", 'yellow'), "\n";
 				}
 				$comment .= "Date of burial: $burial_year ";
 				unless($excel) {
@@ -1988,6 +2005,18 @@ sub freereg {
 			} else {
 				die "freereg ($url): $str: parsing error - update the driver\n";
 			}
+		} elsif($content =~ /Place<\/TD><TD>(.*?)<\/TD>/) {
+			# Print this out because the search
+			# is based by county and we can
+			# use the place to decide which URLs
+			# to not investigate further.
+			if($excel) {
+				$comment = $1;
+			} else {
+				print "Place of death: $1 ";
+			}
+		} else {
+			print colored("$url: Couldn't extract the place of death", 'yellow'), "\n";
 		}
 
 		if($excel) {
