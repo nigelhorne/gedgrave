@@ -188,7 +188,7 @@ foreach my $person($ged->individuals()) {
 	my $name = $person->name();
 
 	# print "$name\n";
-	if($name =~ /(.+)\s*Jr\.?/i) {
+	if($name =~ /(.+?)\s*[SJ]r\.?/i) {
 		$name = $1;
 	}
 	if($name =~ /(.+)Mc\s+(.+)/) {
@@ -358,7 +358,7 @@ foreach my $person($ged->individuals()) {
 		my $husband = $person->husband();
 		if(defined($husband)) {
 			my $hname = $husband->name();
-			if($hname =~ /(.+)\s*Jr\.?/i) {
+			if($hname =~ /(.+?)\s*[SJ]r\.?/i) {
 				$hname = $1;
 			}
 			if($hname =~ /(.+)Mc\s+(.+)/) {
@@ -2155,7 +2155,6 @@ sub stringify {
 	my $dob = $$params{dob};
 	my $dod = $$params{dod};
 	my $dcsp = $$params{dcsp};
-	my $dcountry = $$params{dcountry};
 	my $firstname = $$params{firstname};
 	my $lastname = $$params{lastname};
 	my $middlename = $$params{middlename};
@@ -2173,18 +2172,12 @@ sub stringify {
 	}
 
 	if($maidenname && ($maidenname ne $lastname)) {
-		my $m = ucfirst($maidenname);
-		$rc .= " (nee $m)";
-	}
-
-	if($dcountry) {
-		if($dcsp) {
-			unless(length($dcsp) == 2) {
-				$dcsp = ucfirst(lc($dcsp));
+		foreach(split / /, $maidenname) {
+			if($_ ne $lastname) {
+				my $m .= ucfirst($_);
+				$rc .= " (nee $m)";
+				last;
 			}
-			$rc .= " ($dcsp, $dcountry)";
-		} else {
-			$rc .= " ($dcountry)";
 		}
 	}
 
@@ -2198,11 +2191,6 @@ sub stringify {
 
 	if($dod) {
 		$rc .= $dod;
-	}
-
-	if($excel) {
-		$rc =~ s/"/\\"/g;
-		return "\"$rc\"";
 	}
 
 	return $rc;
