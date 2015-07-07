@@ -2154,7 +2154,6 @@ sub stringify {
 
 	my $dob = $$params{dob};
 	my $dod = $$params{dod};
-	my $dcsp = $$params{dcsp};
 	my $firstname = $$params{firstname};
 	my $lastname = $$params{lastname};
 	my $middlename = $$params{middlename};
