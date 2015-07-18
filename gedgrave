@@ -196,11 +196,12 @@ foreach my $person($ged->individuals()) {
 	}
 	$name =~ s/[\(\)]//g;
 
-	next unless($name =~ /^(.+)\s+\/(.+)\/$/);
+	next unless($name =~ /^(.+)\s+\/(.+)\/(.*)/);
 
-	my ($firstname, $middlename, $lastname);
+	my ($firstname, $middlename, $lastname, $suffix);
 	$firstname = lc($1);
 	$lastname = lc($2);
+	$suffix = $3;
 
 	next unless($firstname && $lastname);
 
@@ -210,6 +211,8 @@ foreach my $person($ged->individuals()) {
 			$middlename = $2;
 		}
 	}
+
+	$suffix =~ s/^\s+//;
 
 	my $dob;
 	eval {
@@ -395,6 +398,7 @@ foreach my $person($ged->individuals()) {
 		middlename => $middlename,
 		lastname => $lastname,
 		maidenname => $maidenname,
+		suffix => $suffix,
 	);
 
 	my $str = stringify(\%params);
@@ -2178,6 +2182,10 @@ sub stringify {
 				last;
 			}
 		}
+	}
+
+	if($suffix) {
+		$rc .= " $suffix";
 	}
 
 	$rc .= ' ';
