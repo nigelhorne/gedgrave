@@ -2213,7 +2213,7 @@ sub check_country {
 	my $country = $$args{country};
 
 	if($country =~ /\d/) {
-		print colored('Found a country with a digit in it', 'yellow'), "\n";
+		print colored("Found a country ($country) with a digit in it", 'yellow'), "\n";
 		return undef, undef;
 	}
 	my $csp = $$args{csp};
