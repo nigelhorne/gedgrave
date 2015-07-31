@@ -2163,6 +2163,7 @@ sub stringify {
 	my $lastname = $$params{lastname};
 	my $middlename = $$params{middlename};
 	my $maidenname = $$params{maidenname};
+	my $suffix = $$params{suffix};
 
 	my $rc = ucfirst($lastname);
 
