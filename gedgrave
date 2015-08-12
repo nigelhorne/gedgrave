@@ -53,6 +53,7 @@
 # TODO: Add more intelligence to the location parser, if the location is
 #	"Margate, Kent", we should infer the country as "England".
 # TODO: Ignore anyone with the living tag if set, it's quicker
+# TODO: Use LWP::ConsoleLogger for debugging when uber verbose is set
 
 use strict;
 use warnings;
