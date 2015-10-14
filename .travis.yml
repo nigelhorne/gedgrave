@@ -1,0 +1,16 @@
+os:
+  - linux
+  # - osx
+# services:
+  # - docker
+language: perl
+perl:
+  - "5.20"
+  - "5.18"
+  - "5.16"
+  - "5.14"
+install:
+  - cpanm --skip-satisfied --installdeps -q -n Gedcom
+  - cpanm --skip-satisfied -n -q Gedcom
+script:
+  - perl -c ./gedgrave
