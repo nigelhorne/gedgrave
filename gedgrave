@@ -131,7 +131,7 @@ if($parallel) {
 	HTTP::Cache::Transparent->import();
 
 	HTTP::Cache::Transparent::init( {
-	BasePath => $cachedir . '/http-cache-transparent',
+	BasePath => "$cachedir/http-cache-transparent",
 	# Verbose => 1,
 	NoUpdate => 60 * 60,
 	MaxAge => 15 * 24} ) || die "gedgrave/cache: $!";
@@ -791,7 +791,7 @@ sub findagrave {
 		last if($index > $matches);
 
 		# warn "$base&sr=$index";
-		my $r = $ua->get($base . "&sr=$index");
+		my $r = $ua->get("$base&sr=$index");
 		last unless($r->is_success);
 	}
 	$cache->set($str, $count);
