@@ -1,0 +1,16 @@
+os:
+  - linux
+  # - osx
+# services:
+  # - docker
+language: perl
+perl:
+  - "5.20"
+  - "5.18"
+  - "5.16"
+  - "5.14"
+install:
+  - cpanm --skip-satisfied --installdeps -q -n Gedcom Parallel::Simple Encode WWW::Mechanize::GZip HTML::SimpleLinkExtor CHI Locale::Object::Country Locale::US Locale::CA Locale::SubCountry Memoize HTTP::Cookies Term::ANSIColor DateTime::Format::Natural Date::Calc File::Spec
+  - cpanm --skip-satisfied -n -q Gedcom Parallel::Simple Encode WWW::Mechanize::GZip HTML::SimpleLinkExtor CHI Locale::Object::Country Locale::US Locale::CA Locale::SubCountry Memoize HTTP::Cookies Term::ANSIColor DateTime::Format::Natural Date::Calc File::Spec
+script:
+  - perl -c ./gedgrave

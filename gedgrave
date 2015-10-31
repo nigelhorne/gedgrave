@@ -79,7 +79,7 @@ use Locale::CA;
 use Locale::SubCountry;
 use Memoize;
 use HTTP::Cookies;
-use warnings::unused;
+# use warnings::unused;
 # use Warn::Colorful(base => 'red', body => 'red', line => 'red');
 use Term::ANSIColor;
 use DateTime::Format::Natural;
