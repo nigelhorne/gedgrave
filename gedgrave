@@ -54,6 +54,7 @@
 #	"Margate, Kent", we should infer the country as "England".
 # TODO: Ignore anyone with the living tag if set, it's quicker
 # TODO: Use LWP::ConsoleLogger for debugging when uber verbose is set
+# FIXME: Rewrite the freereg driver to use the new interface
 
 use strict;
 use warnings;
@@ -95,7 +96,7 @@ if($opts{m}) {	# list module dependencies
 	print "\n";
 	exit;
 }
-die "Usage: gedgrave [ -c default-country-of-death ] [ -d ] [ -f ] [ -m ] [ -n lastname ] [ -s default-subcountry-of-death ] [ -v ] [ -x ] filename\n" unless($ARGV[0]);
+die "Usage: $0 [ -c default-country-of-death ] [ -d ] [ -f ] [ -m ] [ -n lastname ] [ -s default-subcountry-of-death ] [ -v ] [ -x ] filename\n" unless($ARGV[0]);
 
 my $default_country = $opts{c};
 my $default_subcountry = $opts{s};
@@ -131,10 +132,10 @@ if($parallel) {
 	HTTP::Cache::Transparent->import();
 
 	HTTP::Cache::Transparent::init( {
-	BasePath => $cachedir . '/http-cache-transparent',
+	BasePath => "$cachedir/http-cache-transparent",
 	# Verbose => 1,
 	NoUpdate => 60 * 60,
-	MaxAge => 15 * 24} ) || die "gedgrave/cache: $!";
+	MaxAge => 15 * 24} ) || die "$0/cache: $!";
 }
 
 # Gedcoms exported by ancestry.co.uk fail this...
@@ -290,8 +291,8 @@ foreach my $person($ged->individuals()) {
 		$d =~ s/[;\.]\s*/ /;
 		$d =~ s/^\W+//;	# Remove leading other characters
 		if($debug) {
-			print "$firstname $lastname: ";
-			print $person->get_value('death place'), '; ';
+			print "$firstname $lastname: ",
+				$person->get_value('death place'), '; ';
 			if($dcsp) {
 				print "csp=>$dcsp, country => '$d' ";
 			} else {
@@ -369,7 +370,7 @@ foreach my $person($ged->individuals()) {
 			if($hname =~ /(.+)Mc\s+(.+)/) {
 				$hname = "$1$2";
 			}
-			# print $person->name() . " married to $hname\n";
+			# print $person->name(), " married to $hname\n";
 			if($hname =~ /^.+\s+\/(.+)\/$/) {
 				$maidenname = $lastname;
 				$lastname = lc($1);
@@ -517,7 +518,7 @@ foreach my $person($ged->individuals()) {
 			# push @plist, restingspot => [ \&restingspot, \%rparams ];
 		# }
 
-		# prun(@plist) || warn("$str: " . Parallel::Simple::errplus());
+		# prun(@plist) || warn("$str: ", Parallel::Simple::errplus());
 		unless(prun(@plist)) {
 			if($debug) {
 				die colored("$str: " . Parallel::Simple::errplus(), 'red');
@@ -791,7 +792,7 @@ sub findagrave {
 		last if($index > $matches);
 
 		# warn "$base&sr=$index";
-		my $r = $ua->get($base . "&sr=$index");
+		my $r = $ua->get("$base&sr=$index");
 		last unless($r->is_success);
 	}
 	$cache->set($str, $count);
@@ -877,7 +878,7 @@ sub billiongraves {
 	my $r = $ua->get($url);
 
 	unless($r->is_success) {
-		warn "billiongraves: $str ($url): " . $r->status_line . "\n";
+		warn "billiongraves: $str ($url): ", $r->status_line, "\n";
 		return;
 	}
 
@@ -1057,7 +1058,7 @@ sub americanheadstones {
 		return;
 	}
 	unless($r->is_success) {
-		warn "$url: " . $r->status_line . "\n";
+		warn "$url: ", $r->status_line, "\n";
 		return;
 	}
 
@@ -1147,7 +1148,7 @@ sub tombfinder {
 		# HTTP::Response object
 		$r = $m->get('http://www.tombfinder.com/records');
 		unless($r->is_success) {
-			warn 'tombfinder: ' . $r->status_line . "\n";
+			warn 'tombfinder: ', $r->status_line, "\n";
 			return;
 		}
 	}
@@ -1172,7 +1173,7 @@ sub tombfinder {
 		fields => \%fields,
 	);
 	unless($r->is_success) {
-		warn 'tombfinder: ' . stringify($params) . ': ' . $r->status_line . "\n";
+		warn 'tombfinder: ', stringify($params), ': ', $r->status_line, "\n";
 		return;
 	}
 
@@ -1291,7 +1292,7 @@ sub gravestonephotos {
 		my $r = $ua->get($url);
 		# HTTP::Response object
 		unless($r->is_success) {
-			warn "$url: " . $r->status_line . "\n";
+			warn "$url: ", $r->status_line, "\n";
 			return;
 		}
 
@@ -1429,12 +1430,12 @@ sub gravestonephotos {
 					}
 				}
 				if($match) {
-					print "$str: found $t on gravestonephotos.com\n";
-					print "\t$link\n";
+					print "$str: found $t on gravestonephotos.com\n",
+						"\t$link\n";
 					$count++;
 				}
 			}
-			# print 'x' x 40 . "\n";
+			# print 'x' x 40, "\n";
 		}
 	}
 	$cache->set($str, $count);
@@ -1476,7 +1477,7 @@ sub teafor2 {
 		my $r = $ua->get('http://teafor2.com/AW/index.php');
 		# HTTP::Response object
 		unless($r->is_success) {
-			warn "teafor2: " . $r->status_line . "\n";
+			warn "teafor2: ", $r->status_line, "\n";
 			return;
 		}
 
@@ -1720,7 +1721,7 @@ sub cwgc {
 		# HTTP::Response object
 		$r = $m->get('http://www.cwgc.org/find-war-dead.aspx');
 		unless($r->is_success) {
-			warn 'cwgc: ' . $r->status_line . "\n";
+			warn 'cwgc: ', $r->status_line, "\n";
 			return;
 		}
 	}
@@ -1738,7 +1739,7 @@ sub cwgc {
 		fields => \%fields,
 	);
 	unless($r->is_success) {
-		warn "cwgc: $str: " . $r->status_line . "\n";
+		warn "cwgc: $str: ", $r->status_line, "\n";
 		return;
 	}
 	if($r->content =~ /No results found/mi) {
@@ -1844,7 +1845,8 @@ sub freereg {
 	my $r;
 	unless($m->back()) {
 		# HTTP::Response object
-		$r = $m->get('http://www.freereg.org.uk/cgi/Search.pl');
+		# $r = $m->get('http://www.freereg.org.uk/cgi/Search.pl');
+		$r = $m->get('http://freereg1.freereg.org.uk/cgi/Search.pl');
 		unless($r->is_success) {
 			warn colored('freereg: ' . $r->status_line . "\n", 'red');
 			return;
@@ -1877,7 +1879,7 @@ sub freereg {
 	$r = $m->click();
 
 	unless($r->is_success) {
-		warn "freereg: $str: " . $r->status_line . "\n";
+		warn "freereg: $str: ", $r->status_line, "\n";
 		return;
 	}
 	if($r->content =~ /Error/) {
@@ -1933,7 +1935,8 @@ sub freereg {
 			next;
 		}
 
-		my $url = "http://www.freereg.org.uk/cgi/$link";
+		# my $url = "http://www.freereg.org.uk/cgi/$link";
+		my $url = "http://freereg1.freereg.org.uk/cgi/$link";
 
 		my $r = $ua->get($url);
 		unless($r->is_success) {
@@ -2054,7 +2057,7 @@ sub restingspot {
 		# HTTP::Response object
 		$r = $m->get('http://www.restingspot.com');
 		unless($r->is_success) {
-			warn 'restingspot: ' . $r->status_line . "\n";
+			warn 'restingspot: ', $r->status_line, "\n";
 			return;
 		}
 	}
@@ -2068,7 +2071,7 @@ sub restingspot {
 		fields => \%fields,
 	);
 	unless($r->is_success) {
-		warn 'restingspot: ' . stringify($params) . ': ' . $r->status_line . "\n";
+		warn 'restingspot: ', stringify($params), ': ', $r->status_line, "\n";
 		return;
 	}
 	if($r->content =~ /No Resting Spot Added/) {
