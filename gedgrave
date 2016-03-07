@@ -265,9 +265,6 @@ foreach my $person($ged->individuals()) {
 				if($src->title() && ($src->title() =~ /find a grave/i)) {
 					next;
 				}
-				if($src->title()) {
-					print $person->name(), ': ', $src->title(), "\n";
-				}
 			}
 		}
 	}
