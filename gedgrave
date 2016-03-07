@@ -32,6 +32,9 @@
 # will be the best in the long run. Don't expect it to be right yet, so for now
 # expect records to be missed when the country isn't given.
 
+# Set ANSI_COLORS_DISABLED=1 to disable coloured output - useful when
+#	redirecting the output to a file
+
 # TODO: Added the list of sites on the Open Gravestones Research papper
 # TODO: If no match, try the firstname as an initial
 # TODO: Optimise each driver to minimise impact on the websites
@@ -60,7 +63,7 @@
 
 use strict;
 use warnings;
-use diagnostics;
+# use diagnostics;
 use feature 'state';
 
 # use Coro::LWP;
@@ -189,7 +192,7 @@ $vjar->set_cookie(qw(
 my $vmech = WWW::Mechanize::GZip->new(cookie_jar => $vjar);
 my $cmech = WWW::Mechanize::GZip->new();
 
-foreach my $person($ged->individuals()) {
+PERSON: foreach my $person($ged->individuals()) {
 	# Gather the information on this person
 	my $name = $person->name();
 
@@ -263,7 +266,7 @@ foreach my $person($ged->individuals()) {
 			foreach my $src(@s) {
 				$src = $ged->get_source($src) unless ref($src);
 				if($src->title() && ($src->title() =~ /find a grave/i)) {
-					next;
+					next PERSON;
 				}
 			}
 		}
