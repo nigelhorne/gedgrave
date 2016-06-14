@@ -790,7 +790,7 @@ sub findagrave {
 	my $count = 0;
 
 	while(1) {
-		my $e = HTML::SimpleLinkExtor->new($r->base);
+		my $e = HTML::SimpleLinkExtor->new($base);
 		$e->remove_tags('img', 'script');
 		$e->parse($r->content);
 
