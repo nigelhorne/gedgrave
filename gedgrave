@@ -63,6 +63,7 @@
 
 use strict;
 use warnings;
+use autodie qw(:all);
 # use diagnostics;
 use feature 'state';
 
