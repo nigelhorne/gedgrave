@@ -21,4 +21,4 @@ install:
 
 script:
   - perl -c -MO=Lint ./gedgrave
-  - perl -c -Mwarnings::unused ./ged2site
+  - perl -c -Mwarnings::unused ./gedgrave
