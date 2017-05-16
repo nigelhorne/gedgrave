@@ -8,6 +8,7 @@ os:
   # - docker
 
 perl:
+  - "5.25"
   - "5.22"
   - "5.20"
   - "5.18"
@@ -16,7 +17,7 @@ perl:
   - "5.12"
 
 install:
-  - cpanm --skip-satisfied -n -q Gedcom Parallel::Simple Encode WWW::Mechanize::GZip HTML::SimpleLinkExtor CHI Locale::Object::Country Locale::US Locale::CA Locale::SubCountry Memoize HTTP::Cookies Term::ANSIColor DateTime::Format::Natural Date::Calc File::Spec B::Lint warnings::unused
+  - cpanm --skip-satisfied -n -q Gedcom Parallel::Simple Encode WWW::Mechanize::GZip HTML::SimpleLinkExtor CHI DBD::SQLite Locale::Object::Country Locale::US Locale::CA Locale::SubCountry Memoize HTTP::Cookies Term::ANSIColor DateTime::Format::Natural Date::Calc File::Spec B::Lint warnings::unused
 
 script:
   - perl -c -MO=Lint ./gedgrave
