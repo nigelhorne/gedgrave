@@ -687,7 +687,7 @@ sub findagrave {
 		# HTTP::Response object
 		$r = $m->get('http://www.findagrave.com/cgi-bin/fg.cgi');
 		unless($r->is_success) {
-			die 'findagrave: ' . stringify($params) . ': ' . $r->status_line;
+			die 'findagrave: ', stringify($params), ': ', $r->status_line;
 		}
 	}
 
@@ -735,7 +735,7 @@ sub findagrave {
 		fields => \%fields,
 	);
 	unless($r->is_success) {
-		die 'findagrave: ' . stringify($params) . ': ' . $r->status_line;
+		die 'findagrave: ', stringify($params), ': ', $r->status_line;
 	}
 	if($r->content =~ /Sorry, there are no records in the Find A Grave database matching your query\./) {
 		$cache->set($str, 0);
@@ -1065,7 +1065,7 @@ sub americanheadstones {
 
 	my $r = $m->get($url);
 	unless($r->is_success) {
-		# warn "$url: " . $r->status_line . "\n";
+		# warn "$url: ", $r->status_line, "\n";
 		$cache->set($str, 0);
 		return;	# No site, not all states are done
 	}
@@ -2235,7 +2235,7 @@ sub stringify {
 	$rc .= '-';
 
 	if($dod) {
-		$rc .= $dod;
+		return "$rc$dod";
 	}
 
 	return $rc;
